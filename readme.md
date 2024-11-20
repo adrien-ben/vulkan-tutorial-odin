@@ -26,6 +26,10 @@ This section contains the summary of the project commits. Follow :rabbit2: to go
 
 GLFW initialization, window's creation and main loop setup.
 
+### 1.1.2: Instance [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Instance)
+
+Create and destroy the Vulkan instance.
+
 
 
 [0]: https://vulkan-tutorial.com/
