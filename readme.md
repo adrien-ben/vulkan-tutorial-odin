@@ -22,6 +22,11 @@ odin run .
 
 This section contains the summary of the project commits. Follow :rabbit2: to go to the related tutorial page.
 
+### 1.1.1: Base code [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Base_code)
+
+GLFW initialization, window's creation and main loop setup.
+
+
 
 [0]: https://vulkan-tutorial.com/
 [1]: https://odin-lang.org/
