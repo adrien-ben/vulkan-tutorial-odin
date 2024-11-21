@@ -2,6 +2,7 @@ package main
 
 import "base:runtime"
 import "core:fmt"
+import "core:slice"
 import "core:strings"
 import "vendor:glfw"
 import vk "vendor:vulkan"
@@ -56,7 +57,14 @@ main :: proc() {
 		fmt.println("Vulkan debug messenger created.")
 	}
 
-	pdevice, found := pick_physical_device(instance)
+	surface := create_surface(instance, window)
+	defer {
+		vk.DestroySurfaceKHR(instance, surface, nil)
+		fmt.println("Vulkan surface destroyed.")
+	}
+	fmt.println("Vulkan surface created.")
+
+	pdevice, found := pick_physical_device(instance, surface)
 	if !found {
 		fmt.eprintln("No suitable Vulkan physical device found.")
 		return
@@ -77,6 +85,9 @@ main :: proc() {
 		0,
 		&graphics_queue,
 	)
+
+	present_queue: vk.Queue
+	vk.GetDeviceQueue(device, u32(pdevice.queue_family_indices.present_family), 0, &present_queue)
 
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
@@ -250,6 +261,15 @@ when ENABLE_VALIDATION_LAYERS {
 	}
 }
 
+create_surface :: proc(instance: vk.Instance, window: glfw.WindowHandle) -> vk.SurfaceKHR {
+	surface: vk.SurfaceKHR
+	result := glfw.CreateWindowSurface(instance, window, nil, &surface)
+	if result != .SUCCESS {
+		panic("Failed to create surface.")
+	}
+	return surface
+}
+
 PhysicalDevice :: struct {
 	handle:               vk.PhysicalDevice,
 	name:                 string,
@@ -258,9 +278,16 @@ PhysicalDevice :: struct {
 
 QueueFamilyIndices :: struct {
 	graphics_family: int,
+	present_family:  int,
 }
 
-pick_physical_device :: proc(instance: vk.Instance) -> (PhysicalDevice, bool) {
+pick_physical_device :: proc(
+	instance: vk.Instance,
+	surface: vk.SurfaceKHR,
+) -> (
+	PhysicalDevice,
+	bool,
+) {
 	device_count: u32
 	if result := vk.EnumeratePhysicalDevices(instance, &device_count, nil); result != .SUCCESS {
 		panic("Failed to get physical device count.")
@@ -284,7 +311,7 @@ pick_physical_device :: proc(instance: vk.Instance) -> (PhysicalDevice, bool) {
 
 		fmt.printfln("Checking physical device: %v.", name)
 
-		qfamily_indices, ok := find_queue_families(d)
+		qfamily_indices, ok := find_queue_families(d, surface)
 		if !ok {
 			fmt.println("No suitable queue family.")
 			continue
@@ -304,7 +331,13 @@ pick_physical_device :: proc(instance: vk.Instance) -> (PhysicalDevice, bool) {
 	return picked, found
 }
 
-find_queue_families :: proc(pdevice: vk.PhysicalDevice) -> (QueueFamilyIndices, bool) {
+find_queue_families :: proc(
+	pdevice: vk.PhysicalDevice,
+	surface: vk.SurfaceKHR,
+) -> (
+	QueueFamilyIndices,
+	bool,
+) {
 	family_count: u32
 	vk.GetPhysicalDeviceQueueFamilyProperties(pdevice, &family_count, nil)
 
@@ -312,9 +345,24 @@ find_queue_families :: proc(pdevice: vk.PhysicalDevice) -> (QueueFamilyIndices, 
 	defer delete(families)
 	vk.GetPhysicalDeviceQueueFamilyProperties(pdevice, &family_count, raw_data(families))
 
+	graphics_found := false
+	present_found := false
+	qfamily_indices: QueueFamilyIndices
 	for f, index in families {
-		if vk.QueueFlag.GRAPHICS in f.queueFlags {
-			return QueueFamilyIndices{graphics_family = index}, true
+		if vk.QueueFlag.GRAPHICS in f.queueFlags && !graphics_found {
+			qfamily_indices.graphics_family = index
+			graphics_found = true
+		}
+
+		supports_presentation: b32
+		vk.GetPhysicalDeviceSurfaceSupportKHR(pdevice, u32(index), surface, &supports_presentation)
+		if supports_presentation && !present_found {
+			qfamily_indices.present_family = index
+			present_found = true
+		}
+
+		if graphics_found && present_found {
+			return qfamily_indices, true
 		}
 	}
 
@@ -332,20 +380,33 @@ get_pdevice_score :: proc(pdevice_properties: vk.PhysicalDeviceProperties) -> in
 }
 
 create_logical_device :: proc(pdevice: PhysicalDevice) -> vk.Device {
+	families := []int {
+		pdevice.queue_family_indices.graphics_family,
+		pdevice.queue_family_indices.present_family,
+	}
+	slice.sort(families)
+	unique_families := slice.unique(families)
+
 	queue_priorities: f32 = 1.0
-	queue_create_infos := vk.DeviceQueueCreateInfo {
-		sType            = .DEVICE_QUEUE_CREATE_INFO,
-		queueFamilyIndex = u32(pdevice.queue_family_indices.graphics_family),
-		queueCount       = 1,
-		pQueuePriorities = &queue_priorities,
+
+	queue_create_infos := make([dynamic]vk.DeviceQueueCreateInfo)
+	defer delete(queue_create_infos)
+	for f in unique_families {
+		info := vk.DeviceQueueCreateInfo {
+			sType            = .DEVICE_QUEUE_CREATE_INFO,
+			queueFamilyIndex = u32(0),
+			queueCount       = 1,
+			pQueuePriorities = &queue_priorities,
+		}
+		append(&queue_create_infos, info)
 	}
 
 	device_features := vk.PhysicalDeviceFeatures{}
 
 	device_create_info := vk.DeviceCreateInfo {
 		sType                = .DEVICE_CREATE_INFO,
-		queueCreateInfoCount = 1,
-		pQueueCreateInfos    = &queue_create_infos,
+		queueCreateInfoCount = u32(len(queue_create_infos)),
+		pQueueCreateInfos    = raw_data(queue_create_infos),
 		pEnabledFeatures     = &device_features,
 	}
 	// for compatibility with older implementations

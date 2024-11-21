@@ -47,6 +47,10 @@ Physical device and queue families selection.
 
 Create the logical device and retrieve a graphics queue.
 
+### 1.2.1: Window surface [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Presentation/Window_surface)
+
+Create the window surface and retrieve a queue supporting presentation.
+
 
 
 [0]: https://vulkan-tutorial.com/
