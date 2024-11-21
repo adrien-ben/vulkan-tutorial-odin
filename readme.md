@@ -43,6 +43,10 @@ Enable `VK_LAYER_KHRONOS_validation` validation layer and setup the debug messen
 
 Physical device and queue families selection.
 
+### 1.1.5: Logical device and queues [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Logical_device_and_queues)
+
+Create the logical device and retrieve a graphics queue.
+
 
 
 [0]: https://vulkan-tutorial.com/

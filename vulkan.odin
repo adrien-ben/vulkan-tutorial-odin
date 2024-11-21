@@ -63,6 +63,21 @@ main :: proc() {
 	}
 	fmt.printfln("Vulkan physical device selected: %#v.", pdevice)
 
+	device := create_logical_device(pdevice)
+	defer {
+		vk.DestroyDevice(device, nil)
+		fmt.println("Vulkan logical device destroyed.")
+	}
+	fmt.println("Vulkan logical device created.")
+
+	graphics_queue: vk.Queue
+	vk.GetDeviceQueue(
+		device,
+		u32(pdevice.queue_family_indices.graphics_family),
+		0,
+		&graphics_queue,
+	)
+
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
 	}
@@ -314,4 +329,35 @@ get_pdevice_score :: proc(pdevice_properties: vk.PhysicalDeviceProperties) -> in
 		return 10
 	}
 	return 1
+}
+
+create_logical_device :: proc(pdevice: PhysicalDevice) -> vk.Device {
+	queue_priorities: f32 = 1.0
+	queue_create_infos := vk.DeviceQueueCreateInfo {
+		sType            = .DEVICE_QUEUE_CREATE_INFO,
+		queueFamilyIndex = u32(pdevice.queue_family_indices.graphics_family),
+		queueCount       = 1,
+		pQueuePriorities = &queue_priorities,
+	}
+
+	device_features := vk.PhysicalDeviceFeatures{}
+
+	device_create_info := vk.DeviceCreateInfo {
+		sType                = .DEVICE_CREATE_INFO,
+		queueCreateInfoCount = 1,
+		pQueueCreateInfos    = &queue_create_infos,
+		pEnabledFeatures     = &device_features,
+	}
+	// for compatibility with older implementations
+	when ENABLE_VALIDATION_LAYERS {
+		device_create_info.enabledLayerCount = len(VALIDATION_LAYERS)
+		device_create_info.ppEnabledLayerNames = raw_data(VALIDATION_LAYERS[:])
+	}
+
+	device: vk.Device
+	result := vk.CreateDevice(pdevice.handle, &device_create_info, nil, &device)
+	if result != .SUCCESS {
+		panic("Failed to create logical device.")
+	}
+	return device
 }
