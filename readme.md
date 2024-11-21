@@ -14,8 +14,11 @@ You need to have a [Vulkan SDK][2] and the [Odin compiler][3].
 
 ## Running the project
 
-```
+```sh
 odin run .
+
+# or with validation layers
+odin run . -define:ENABLE_VALIDATION_LAYERS=true
 ```
 
 ## Commits
@@ -30,9 +33,16 @@ GLFW initialization, window's creation and main loop setup.
 
 Create and destroy the Vulkan instance.
 
+### 1.1.3: Validation layers [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Validation_layers)
+
+Enable `VK_LAYER_KHRONOS_validation` validation layer and setup the debug messenger.
+
+> Here we make use of Odin's [command-line defines][4] to control the activation of the validation layers (see [here](#running-the-project)).
+
 
 
 [0]: https://vulkan-tutorial.com/
 [1]: https://odin-lang.org/
 [2]: https://www.lunarg.com/vulkan-sdk/
 [3]: https://odin-lang.org/docs/install/
+[4]: https://odin-lang.org/docs/overview/#command-line-defines
