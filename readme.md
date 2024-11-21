@@ -39,6 +39,10 @@ Enable `VK_LAYER_KHRONOS_validation` validation layer and setup the debug messen
 
 > Here we make use of Odin's [command-line defines][4] to control the activation of the validation layers (see [here](#running-the-project)).
 
+### 1.1.4: Physical devices and queue families [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Physical_devices_and_queue_families)
+
+Physical device and queue families selection.
+
 
 
 [0]: https://vulkan-tutorial.com/

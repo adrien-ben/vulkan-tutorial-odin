@@ -2,6 +2,7 @@ package main
 
 import "base:runtime"
 import "core:fmt"
+import "core:strings"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
@@ -55,6 +56,13 @@ main :: proc() {
 		fmt.println("Vulkan debug messenger created.")
 	}
 
+	pdevice, found := pick_physical_device(instance)
+	if !found {
+		fmt.eprintln("No suitable Vulkan physical device found.")
+		return
+	}
+	fmt.printfln("Vulkan physical device selected: %#v.", pdevice)
+
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
 	}
@@ -106,7 +114,7 @@ create_instance :: proc() -> vk.Instance {
 			}
 
 			if !found {
-				fmt.eprintln("Required extension", required, "not supported")
+				fmt.eprintfln("Required extension %v not supported.", required)
 				all_extensions_supported = false
 			}
 
@@ -143,7 +151,7 @@ create_instance :: proc() -> vk.Instance {
 			}
 
 			if !found {
-				fmt.eprintln("Required validation layer", required, "not supported")
+				fmt.eprintfln("Required validation layer %v not supported.", required)
 				all_layers_supported = false
 			}
 		}
@@ -225,4 +233,85 @@ when ENABLE_VALIDATION_LAYERS {
 		}
 		return messenger
 	}
+}
+
+PhysicalDevice :: struct {
+	handle:               vk.PhysicalDevice,
+	name:                 string,
+	queue_family_indices: QueueFamilyIndices,
+}
+
+QueueFamilyIndices :: struct {
+	graphics_family: int,
+}
+
+pick_physical_device :: proc(instance: vk.Instance) -> (PhysicalDevice, bool) {
+	device_count: u32
+	if result := vk.EnumeratePhysicalDevices(instance, &device_count, nil); result != .SUCCESS {
+		panic("Failed to get physical device count.")
+	}
+
+	devices := make([]vk.PhysicalDevice, device_count)
+	defer delete(devices)
+	if result := vk.EnumeratePhysicalDevices(instance, &device_count, raw_data(devices));
+	   result != .SUCCESS {
+		panic("Failed to list physical devices.")
+	}
+
+	picked: PhysicalDevice
+	best := 0
+	found := false
+	for d in devices {
+		properties: vk.PhysicalDeviceProperties
+		vk.GetPhysicalDeviceProperties(d, &properties)
+
+		name := cstring(&properties.deviceName[0])
+
+		fmt.printfln("Checking physical device: %v.", name)
+
+		qfamily_indices, ok := find_queue_families(d)
+		if !ok {
+			fmt.println("No suitable queue family.")
+			continue
+		}
+
+		pd_score := get_pdevice_score(properties)
+		if pd_score > best {
+			picked.handle = d
+			delete(picked.name)
+			picked.name = strings.clone_from(name)
+			picked.queue_family_indices = qfamily_indices
+			best = pd_score
+			found = true
+		}
+	}
+
+	return picked, found
+}
+
+find_queue_families :: proc(pdevice: vk.PhysicalDevice) -> (QueueFamilyIndices, bool) {
+	family_count: u32
+	vk.GetPhysicalDeviceQueueFamilyProperties(pdevice, &family_count, nil)
+
+	families := make([]vk.QueueFamilyProperties, family_count)
+	defer delete(families)
+	vk.GetPhysicalDeviceQueueFamilyProperties(pdevice, &family_count, raw_data(families))
+
+	for f, index in families {
+		if vk.QueueFlag.GRAPHICS in f.queueFlags {
+			return QueueFamilyIndices{graphics_family = index}, true
+		}
+	}
+
+	return {}, false
+}
+
+get_pdevice_score :: proc(pdevice_properties: vk.PhysicalDeviceProperties) -> int {
+	#partial switch pdevice_properties.deviceType {
+	case .DISCRETE_GPU:
+		return 100
+	case .INTEGRATED_GPU:
+		return 10
+	}
+	return 1
 }
