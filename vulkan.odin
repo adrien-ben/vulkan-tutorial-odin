@@ -103,6 +103,16 @@ main :: proc() {
 		delete(swapchain_images)
 	}
 
+	swapchain_image_views := create_swapchain_image_views(device, swapchain, swapchain_images)
+	defer {
+		for view in swapchain_image_views {
+			vk.DestroyImageView(device, view, nil)
+		}
+		delete(swapchain_image_views)
+		fmt.println("Vulkan swapchain image views destroyed.")
+	}
+	fmt.println("Vulkan swapchain image views created.")
+
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
 	}
@@ -640,4 +650,33 @@ get_swapchain_images :: proc(device: vk.Device, swapchain: Swapchain) -> []vk.Im
 		panic("Failed to get swapchain images.")
 	}
 	return imgs
+}
+
+create_swapchain_image_views :: proc(
+	device: vk.Device,
+	swapchain: Swapchain,
+	imgs: []vk.Image,
+) -> []vk.ImageView {
+	views := make([]vk.ImageView, len(imgs))
+	for img, index in imgs {
+		create_info := vk.ImageViewCreateInfo {
+			sType = .IMAGE_VIEW_CREATE_INFO,
+			image = img,
+			viewType = .D2,
+			format = swapchain.format.format,
+			components = {r = .IDENTITY, g = .IDENTITY, b = .IDENTITY, a = .IDENTITY},
+			subresourceRange = {
+				aspectMask = {.COLOR},
+				baseMipLevel = 0,
+				levelCount = 1,
+				baseArrayLayer = 0,
+				layerCount = 1,
+			},
+		}
+		result := vk.CreateImageView(device, &create_info, nil, &views[index])
+		if result != .SUCCESS {
+			panic("Failed to create swapchain image view.")
+		}
+	}
+	return views
 }

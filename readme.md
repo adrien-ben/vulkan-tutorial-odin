@@ -55,6 +55,10 @@ Create the window surface and retrieve a queue supporting presentation.
 
 Create the swapchain and retriving the swapchain images.
 
+### 1.2.3: Image views [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Presentation/Image_views)
+
+Create the image views for the swapchain images.
+
 
 
 [0]: https://vulkan-tutorial.com/
