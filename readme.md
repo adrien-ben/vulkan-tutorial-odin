@@ -84,6 +84,10 @@ Finish the graphics pipeline creation.
 
 Create the swapchain framebuffers from the swapchain image views and the render pass.
 
+### 1.4.2: Command buffers [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Drawing/Command_buffers)
+
+Create the command buffer and record commands to draw.
+
 
 
 [0]: https://vulkan-tutorial.com/

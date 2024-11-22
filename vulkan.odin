@@ -147,6 +147,16 @@ main :: proc() {
 	}
 	fmt.println("Vulkan graphics pipeline and layout created.")
 
+	command_pool := create_command_pool(device, pdevice.queue_family_indices.graphics_family)
+	defer {
+		vk.DestroyCommandPool(device, command_pool, nil)
+		fmt.println("Vulkan command pool destroyed.")
+	}
+	fmt.println("Vulkan command pool created.")
+
+	command_buffer := allocate_command_buffer(device, command_pool)
+	fmt.println("Vulkan command buffer allocated.")
+
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
 	}
@@ -928,4 +938,87 @@ create_shader_module :: proc(device: vk.Device, src: []u32) -> vk.ShaderModule {
 		panic("Failed to create shader module.")
 	}
 	return module
+}
+
+create_command_pool :: proc(device: vk.Device, queue_family_index: int) -> vk.CommandPool {
+	create_info := vk.CommandPoolCreateInfo {
+		sType            = .COMMAND_POOL_CREATE_INFO,
+		flags            = {.RESET_COMMAND_BUFFER},
+		queueFamilyIndex = u32(queue_family_index),
+	}
+
+	pool: vk.CommandPool
+	result := vk.CreateCommandPool(device, &create_info, nil, &pool)
+	if result != .SUCCESS {
+		panic("Failed to create command pool.")
+	}
+	return pool
+}
+
+allocate_command_buffer :: proc(device: vk.Device, pool: vk.CommandPool) -> vk.CommandBuffer {
+	alloc_info := vk.CommandBufferAllocateInfo {
+		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
+		commandPool        = pool,
+		level              = .PRIMARY,
+		commandBufferCount = 1,
+	}
+
+	buffer: vk.CommandBuffer
+	result := vk.AllocateCommandBuffers(device, &alloc_info, &buffer)
+	if result != .SUCCESS {
+		panic("Failed to allocate command buffer.")
+	}
+	return buffer
+}
+
+record_command_buffer :: proc(
+	buffer: vk.CommandBuffer,
+	render_pass: vk.RenderPass,
+	framebuffer: vk.Framebuffer,
+	swapchain: Swapchain,
+	pipeline: vk.Pipeline,
+) {
+	cmd_begin_info := vk.CommandBufferBeginInfo {
+		sType = .COMMAND_BUFFER_BEGIN_INFO,
+	}
+	result := vk.BeginCommandBuffer(buffer, &cmd_begin_info)
+	if result != .SUCCESS {
+		panic("Failed to begin command buffer.")
+	}
+
+	clear_color := vk.ClearValue {
+		color = vk.ClearColorValue{float32 = {0, 0, 0, 1}},
+	}
+	render_pass_begin_info := vk.RenderPassBeginInfo {
+		sType = .RENDER_PASS_BEGIN_INFO,
+		renderPass = render_pass,
+		framebuffer = framebuffer,
+		renderArea = {offset = {}, extent = swapchain.extent},
+		clearValueCount = 1,
+		pClearValues = &clear_color,
+	}
+
+	vk.CmdBeginRenderPass(buffer, &render_pass_begin_info, .INLINE)
+	vk.CmdBindPipeline(buffer, .GRAPHICS, pipeline)
+
+	viewport := vk.Viewport {
+		width    = f32(swapchain.extent.width),
+		height   = f32(swapchain.extent.height),
+		maxDepth = 1,
+	}
+	vk.CmdSetViewport(buffer, 0, 1, &viewport)
+
+	scissor := vk.Rect2D {
+		extent = swapchain.extent,
+	}
+	vk.CmdSetScissor(buffer, 0, 1, &scissor)
+
+	vk.CmdDraw(buffer, 3, 1, 0, 0)
+
+	vk.CmdEndRenderPass(buffer)
+
+	result = vk.EndCommandBuffer(buffer)
+	if result != .SUCCESS {
+		panic("Failed to end command buffer.")
+	}
 }
