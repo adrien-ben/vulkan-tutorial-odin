@@ -15,6 +15,11 @@ You need to have a [Vulkan SDK][2] and the [Odin compiler][3].
 ## Running the project
 
 ```sh
+# if you need to recompile the shaders
+.\scripts\compile_shaders.ps1
+# or ./scripts/compile_shaders.sh on linux
+
+# compile and run the application
 odin run .
 
 # or with validation layers
@@ -58,6 +63,11 @@ Create the swapchain and retriving the swapchain images.
 ### 1.2.3: Image views [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Presentation/Image_views)
 
 Create the image views for the swapchain images.
+
+### 1.3.2: Shader modules [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Shader_modules)
+
+Create and compile the vertex and fragment shaders, load them, and the shader modules.
+
 
 
 

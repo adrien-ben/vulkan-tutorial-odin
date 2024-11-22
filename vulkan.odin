@@ -113,6 +113,8 @@ main :: proc() {
 	}
 	fmt.println("Vulkan swapchain image views created.")
 
+	create_graphics_pipeline(device)
+
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
 	}
@@ -679,4 +681,54 @@ create_swapchain_image_views :: proc(
 		}
 	}
 	return views
+}
+
+create_graphics_pipeline :: proc(device: vk.Device) {
+	// shader modules
+	vertex_shader_src := #load("shaders/vertex.spv", []u32)
+	vertex_shader_module := create_shader_module(device, vertex_shader_src)
+	defer {
+		vk.DestroyShaderModule(device, vertex_shader_module, nil)
+		fmt.println("Vertex shader module destroyed.")
+	}
+	fmt.println("Vertex shader module created.")
+
+	fragment_shader_src := #load("shaders/fragment.spv", []u32)
+	fragment_shader_module := create_shader_module(device, fragment_shader_src)
+	defer {
+		vk.DestroyShaderModule(device, fragment_shader_module, nil)
+		fmt.println("Fragment shader module destroyed.")
+	}
+	fmt.println("Fragment shader module created.")
+
+	// shader stages
+	shader_stages := []vk.PipelineShaderStageCreateInfo {
+		{
+			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+			stage = {.VERTEX},
+			module = vertex_shader_module,
+			pName = "main",
+		},
+		{
+			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+			stage = {.FRAGMENT},
+			module = fragment_shader_module,
+			pName = "main",
+		},
+	}
+}
+
+create_shader_module :: proc(device: vk.Device, src: []u32) -> vk.ShaderModule {
+	create_info := vk.ShaderModuleCreateInfo {
+		sType    = .SHADER_MODULE_CREATE_INFO,
+		codeSize = size_of(u32) * len(src),
+		pCode    = raw_data(src),
+	}
+
+	module: vk.ShaderModule
+	result := vk.CreateShaderModule(device, &create_info, nil, &module)
+	if result != .SUCCESS {
+		panic("Failed to create shader module.")
+	}
+	return module
 }
