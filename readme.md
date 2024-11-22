@@ -88,6 +88,10 @@ Create the swapchain framebuffers from the swapchain image views and the render 
 
 Create the command buffer and record commands to draw.
 
+### 1.4.3: Rendering and presentation [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Drawing/Rendering_and_presentation)
+
+Finalize drawing the triangle to the screen!
+
 
 
 [0]: https://vulkan-tutorial.com/

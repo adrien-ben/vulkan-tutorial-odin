@@ -157,9 +157,92 @@ main :: proc() {
 	command_buffer := allocate_command_buffer(device, command_pool)
 	fmt.println("Vulkan command buffer allocated.")
 
+	sync_objs := create_sync_objects(device)
+	defer {
+		destroy_sync_objects(device, sync_objs)
+		fmt.println("Vulkan sync objects destroyed.")
+	}
+	fmt.println("Vulkan sync objects created.")
+
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
+
+		// wait for previous frame
+		result := vk.WaitForFences(device, 1, &sync_objs.in_flight, true, max(u64))
+		if result != .SUCCESS {
+			fmt.eprintfln("Failed to wait for fence: %v.", result)
+			break
+		}
+
+		result = vk.ResetFences(device, 1, &sync_objs.in_flight)
+		if result != .SUCCESS {
+			fmt.eprintfln("Failed to reset fence: %v.", result)
+			break
+		}
+
+		// acquire a new image from the swapchain
+		image_index: u32
+		result = vk.AcquireNextImageKHR(
+			device,
+			swapchain.handle,
+			max(u64),
+			sync_objs.image_available,
+			{},
+			&image_index,
+		)
+		if result != .SUCCESS {
+			fmt.eprintfln("Failed to acquire swapchain image: %v.", result)
+			break
+		}
+
+		// record and submit drawing commands
+		result = vk.ResetCommandBuffer(command_buffer, nil)
+		if result != .SUCCESS {
+			fmt.eprintfln("Failed to reset command buffer: %v.", result)
+			break
+		}
+
+		record_command_buffer(
+			command_buffer,
+			render_pass,
+			swapchain_framebuffers[image_index],
+			swapchain,
+			graphics_pipeline,
+		)
+
+		submit_info := vk.SubmitInfo {
+			sType                = .SUBMIT_INFO,
+			waitSemaphoreCount   = 1,
+			pWaitSemaphores      = &sync_objs.image_available,
+			pWaitDstStageMask    = &vk.PipelineStageFlags{.COLOR_ATTACHMENT_OUTPUT},
+			commandBufferCount   = 1,
+			pCommandBuffers      = &command_buffer,
+			signalSemaphoreCount = 1,
+			pSignalSemaphores    = &sync_objs.render_finished,
+		}
+		result = vk.QueueSubmit(graphics_queue, 1, &submit_info, sync_objs.in_flight)
+		if result != .SUCCESS {
+			fmt.eprintfln("Failed to submit: %v.", result)
+			break
+		}
+
+		// present the result to the screen!
+		present_info := vk.PresentInfoKHR {
+			sType              = .PRESENT_INFO_KHR,
+			waitSemaphoreCount = 1,
+			pWaitSemaphores    = &sync_objs.render_finished,
+			swapchainCount     = 1,
+			pSwapchains        = &swapchain.handle,
+			pImageIndices      = &image_index,
+		}
+		result = vk.QueuePresentKHR(present_queue, &present_info)
+		if result != .SUCCESS {
+			fmt.eprintfln("Failed to present: %v.", result)
+			break
+		}
 	}
+
+	vk.DeviceWaitIdle(device)
 }
 
 create_instance :: proc() -> vk.Instance {
@@ -748,12 +831,23 @@ create_render_pass :: proc(device: vk.Device, swapchain: Swapchain) -> vk.Render
 		pColorAttachments    = &color_attachment_ref,
 	}
 
+	dependency := vk.SubpassDependency {
+		srcSubpass    = vk.SUBPASS_EXTERNAL,
+		dstSubpass    = 0,
+		srcStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
+		srcAccessMask = nil,
+		dstStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
+		dstAccessMask = {.COLOR_ATTACHMENT_WRITE},
+	}
+
 	create_info := vk.RenderPassCreateInfo {
 		sType           = .RENDER_PASS_CREATE_INFO,
 		attachmentCount = 1,
 		pAttachments    = &color_attachment,
 		subpassCount    = 1,
 		pSubpasses      = &subpass,
+		dependencyCount = 1,
+		pDependencies   = &dependency,
 	}
 
 	render_pass: vk.RenderPass
@@ -1021,4 +1115,43 @@ record_command_buffer :: proc(
 	if result != .SUCCESS {
 		panic("Failed to end command buffer.")
 	}
+}
+
+SyncObjects :: struct {
+	image_available: vk.Semaphore,
+	render_finished: vk.Semaphore,
+	in_flight:       vk.Fence,
+}
+
+destroy_sync_objects :: proc(device: vk.Device, objs: SyncObjects) {
+	vk.DestroySemaphore(device, objs.image_available, nil)
+	vk.DestroySemaphore(device, objs.render_finished, nil)
+	vk.DestroyFence(device, objs.in_flight, nil)
+}
+
+create_sync_objects :: proc(device: vk.Device) -> SyncObjects {
+	objs: SyncObjects
+
+	semaphore_info := vk.SemaphoreCreateInfo {
+		sType = .SEMAPHORE_CREATE_INFO,
+	}
+	result := vk.CreateSemaphore(device, &semaphore_info, nil, &objs.image_available)
+	if result != .SUCCESS {
+		panic("Failed to create image available semaphore.")
+	}
+	result = vk.CreateSemaphore(device, &semaphore_info, nil, &objs.render_finished)
+	if result != .SUCCESS {
+		panic("Failed to create render finished semaphore.")
+	}
+
+	fence_info := vk.FenceCreateInfo {
+		sType = .FENCE_CREATE_INFO,
+		flags = {.SIGNALED},
+	}
+	result = vk.CreateFence(device, &fence_info, nil, &objs.in_flight)
+	if result != .SUCCESS {
+		panic("Failed to create fence.")
+	}
+
+	return objs
 }
