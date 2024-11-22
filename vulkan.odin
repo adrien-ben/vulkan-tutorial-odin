@@ -10,6 +10,8 @@ import vk "vendor:vulkan"
 WIN_WIDTH :: 800
 WIN_HEIGHT :: 600
 
+MAX_FRAMES_IN_FLIGHT :: 2
+
 ENABLE_VALIDATION_LAYERS :: #config(ENABLE_VALIDATION_LAYERS, false)
 VALIDATION_LAYERS := [?]cstring{"VK_LAYER_KHRONOS_validation"}
 
@@ -154,27 +156,33 @@ main :: proc() {
 	}
 	fmt.println("Vulkan command pool created.")
 
-	command_buffer := allocate_command_buffer(device, command_pool)
+	command_buffers := allocate_command_buffers(device, command_pool)
 	fmt.println("Vulkan command buffer allocated.")
 
 	sync_objs := create_sync_objects(device)
 	defer {
-		destroy_sync_objects(device, sync_objs)
+		for o in sync_objs {
+			destroy_sync_objects(device, o)
+		}
 		fmt.println("Vulkan sync objects destroyed.")
 	}
 	fmt.println("Vulkan sync objects created.")
 
+	current_frame := 0
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
 
+		sync_obj := sync_objs[current_frame]
+		command_buffer := command_buffers[current_frame]
+
 		// wait for previous frame
-		result := vk.WaitForFences(device, 1, &sync_objs.in_flight, true, max(u64))
+		result := vk.WaitForFences(device, 1, &sync_obj.in_flight, true, max(u64))
 		if result != .SUCCESS {
 			fmt.eprintfln("Failed to wait for fence: %v.", result)
 			break
 		}
 
-		result = vk.ResetFences(device, 1, &sync_objs.in_flight)
+		result = vk.ResetFences(device, 1, &sync_obj.in_flight)
 		if result != .SUCCESS {
 			fmt.eprintfln("Failed to reset fence: %v.", result)
 			break
@@ -186,7 +194,7 @@ main :: proc() {
 			device,
 			swapchain.handle,
 			max(u64),
-			sync_objs.image_available,
+			sync_obj.image_available,
 			{},
 			&image_index,
 		)
@@ -213,14 +221,14 @@ main :: proc() {
 		submit_info := vk.SubmitInfo {
 			sType                = .SUBMIT_INFO,
 			waitSemaphoreCount   = 1,
-			pWaitSemaphores      = &sync_objs.image_available,
+			pWaitSemaphores      = &sync_obj.image_available,
 			pWaitDstStageMask    = &vk.PipelineStageFlags{.COLOR_ATTACHMENT_OUTPUT},
 			commandBufferCount   = 1,
 			pCommandBuffers      = &command_buffer,
 			signalSemaphoreCount = 1,
-			pSignalSemaphores    = &sync_objs.render_finished,
+			pSignalSemaphores    = &sync_obj.render_finished,
 		}
-		result = vk.QueueSubmit(graphics_queue, 1, &submit_info, sync_objs.in_flight)
+		result = vk.QueueSubmit(graphics_queue, 1, &submit_info, sync_obj.in_flight)
 		if result != .SUCCESS {
 			fmt.eprintfln("Failed to submit: %v.", result)
 			break
@@ -230,7 +238,7 @@ main :: proc() {
 		present_info := vk.PresentInfoKHR {
 			sType              = .PRESENT_INFO_KHR,
 			waitSemaphoreCount = 1,
-			pWaitSemaphores    = &sync_objs.render_finished,
+			pWaitSemaphores    = &sync_obj.render_finished,
 			swapchainCount     = 1,
 			pSwapchains        = &swapchain.handle,
 			pImageIndices      = &image_index,
@@ -240,6 +248,8 @@ main :: proc() {
 			fmt.eprintfln("Failed to present: %v.", result)
 			break
 		}
+
+		current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT
 	}
 
 	vk.DeviceWaitIdle(device)
@@ -1049,20 +1059,23 @@ create_command_pool :: proc(device: vk.Device, queue_family_index: int) -> vk.Co
 	return pool
 }
 
-allocate_command_buffer :: proc(device: vk.Device, pool: vk.CommandPool) -> vk.CommandBuffer {
+allocate_command_buffers :: proc(
+	device: vk.Device,
+	pool: vk.CommandPool,
+) -> [MAX_FRAMES_IN_FLIGHT]vk.CommandBuffer {
 	alloc_info := vk.CommandBufferAllocateInfo {
 		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
 		commandPool        = pool,
 		level              = .PRIMARY,
-		commandBufferCount = 1,
+		commandBufferCount = MAX_FRAMES_IN_FLIGHT,
 	}
 
-	buffer: vk.CommandBuffer
-	result := vk.AllocateCommandBuffers(device, &alloc_info, &buffer)
+	buffers: [MAX_FRAMES_IN_FLIGHT]vk.CommandBuffer
+	result := vk.AllocateCommandBuffers(device, &alloc_info, raw_data(buffers[:]))
 	if result != .SUCCESS {
 		panic("Failed to allocate command buffer.")
 	}
-	return buffer
+	return buffers
 }
 
 record_command_buffer :: proc(
@@ -1129,28 +1142,29 @@ destroy_sync_objects :: proc(device: vk.Device, objs: SyncObjects) {
 	vk.DestroyFence(device, objs.in_flight, nil)
 }
 
-create_sync_objects :: proc(device: vk.Device) -> SyncObjects {
-	objs: SyncObjects
+create_sync_objects :: proc(device: vk.Device) -> [MAX_FRAMES_IN_FLIGHT]SyncObjects {
+	objs: [MAX_FRAMES_IN_FLIGHT]SyncObjects
 
 	semaphore_info := vk.SemaphoreCreateInfo {
 		sType = .SEMAPHORE_CREATE_INFO,
 	}
-	result := vk.CreateSemaphore(device, &semaphore_info, nil, &objs.image_available)
-	if result != .SUCCESS {
-		panic("Failed to create image available semaphore.")
-	}
-	result = vk.CreateSemaphore(device, &semaphore_info, nil, &objs.render_finished)
-	if result != .SUCCESS {
-		panic("Failed to create render finished semaphore.")
-	}
-
 	fence_info := vk.FenceCreateInfo {
 		sType = .FENCE_CREATE_INFO,
 		flags = {.SIGNALED},
 	}
-	result = vk.CreateFence(device, &fence_info, nil, &objs.in_flight)
-	if result != .SUCCESS {
-		panic("Failed to create fence.")
+	for &o in objs {
+		result := vk.CreateSemaphore(device, &semaphore_info, nil, &o.image_available)
+		if result != .SUCCESS {
+			panic("Failed to create image available semaphore.")
+		}
+		result = vk.CreateSemaphore(device, &semaphore_info, nil, &o.render_finished)
+		if result != .SUCCESS {
+			panic("Failed to create render finished semaphore.")
+		}
+		result = vk.CreateFence(device, &fence_info, nil, &o.in_flight)
+		if result != .SUCCESS {
+			panic("Failed to create fence.")
+		}
 	}
 
 	return objs

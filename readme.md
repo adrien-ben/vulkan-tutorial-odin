@@ -92,6 +92,10 @@ Create the command buffer and record commands to draw.
 
 Finalize drawing the triangle to the screen!
 
+### 1.4.4: Frames in flight [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Drawing/Frames_in_flight)
+
+Improve rendering by allowing overlap between cpu and gpu with multiple frames in flight.
+
 
 
 [0]: https://vulkan-tutorial.com/
