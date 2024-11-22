@@ -72,6 +72,9 @@ Create and compile the vertex and fragment shaders, load them, and the shader mo
 
 Setup the states of the fixed functions of the graphics pipeline and create the pipeline layout.
 
+### 1.3.4: Render passes [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Render_passes)
+
+Create the render pass describing the attachments to use during rendering.
 
 
 

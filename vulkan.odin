@@ -113,6 +113,13 @@ main :: proc() {
 	}
 	fmt.println("Vulkan swapchain image views created.")
 
+	render_pass := create_render_pass(device, swapchain)
+	defer {
+		vk.DestroyRenderPass(device, render_pass, nil)
+		fmt.println("Vulkan render pass destroyed.")
+	}
+	fmt.println("Vulkan render pass created.")
+
 	graphics_pipeline_layout := create_graphics_pipeline(device, swapchain)
 	defer {
 		vk.DestroyPipelineLayout(device, graphics_pipeline_layout, nil)
@@ -685,6 +692,45 @@ create_swapchain_image_views :: proc(
 		}
 	}
 	return views
+}
+
+create_render_pass :: proc(device: vk.Device, swapchain: Swapchain) -> vk.RenderPass {
+	color_attachment := vk.AttachmentDescription {
+		format         = swapchain.format.format,
+		samples        = {._1},
+		loadOp         = .CLEAR,
+		storeOp        = .STORE,
+		stencilLoadOp  = .DONT_CARE,
+		stencilStoreOp = .DONT_CARE,
+		initialLayout  = .UNDEFINED,
+		finalLayout    = .PRESENT_SRC_KHR,
+	}
+
+	color_attachment_ref := vk.AttachmentReference {
+		attachment = 0,
+		layout     = .COLOR_ATTACHMENT_OPTIMAL,
+	}
+
+	subpass := vk.SubpassDescription {
+		pipelineBindPoint    = .GRAPHICS,
+		colorAttachmentCount = 1,
+		pColorAttachments    = &color_attachment_ref,
+	}
+
+	create_info := vk.RenderPassCreateInfo {
+		sType           = .RENDER_PASS_CREATE_INFO,
+		attachmentCount = 1,
+		pAttachments    = &color_attachment,
+		subpassCount    = 1,
+		pSubpasses      = &subpass,
+	}
+
+	render_pass: vk.RenderPass
+	result := vk.CreateRenderPass(device, &create_info, nil, &render_pass)
+	if result != .SUCCESS {
+		panic("Failed to create render pass.")
+	}
+	return render_pass
 }
 
 create_graphics_pipeline :: proc(device: vk.Device, swapchain: Swapchain) -> vk.PipelineLayout {
