@@ -51,6 +51,10 @@ Create the logical device and retrieve a graphics queue.
 
 Create the window surface and retrieve a queue supporting presentation.
 
+### 1.2.2: Swapchain [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Presentation/Swap_chain)
+
+Create the swapchain and retriving the swapchain images.
+
 
 
 [0]: https://vulkan-tutorial.com/
