@@ -113,7 +113,11 @@ main :: proc() {
 	}
 	fmt.println("Vulkan swapchain image views created.")
 
-	create_graphics_pipeline(device)
+	graphics_pipeline_layout := create_graphics_pipeline(device, swapchain)
+	defer {
+		vk.DestroyPipelineLayout(device, graphics_pipeline_layout, nil)
+		fmt.println("Vulkan graphics pipeline and layout destroyed.")
+	}
 
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
@@ -683,7 +687,7 @@ create_swapchain_image_views :: proc(
 	return views
 }
 
-create_graphics_pipeline :: proc(device: vk.Device) {
+create_graphics_pipeline :: proc(device: vk.Device, swapchain: Swapchain) -> vk.PipelineLayout {
 	// shader modules
 	vertex_shader_src := #load("shaders/vertex.spv", []u32)
 	vertex_shader_module := create_shader_module(device, vertex_shader_src)
@@ -716,6 +720,76 @@ create_graphics_pipeline :: proc(device: vk.Device) {
 			pName = "main",
 		},
 	}
+
+	// dynamic states
+	dynamic_states := []vk.DynamicState{.VIEWPORT, .SCISSOR}
+	dynamic_state := vk.PipelineDynamicStateCreateInfo {
+		sType             = .PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+		dynamicStateCount = u32(len(dynamic_states)),
+		pDynamicStates    = raw_data(dynamic_states),
+	}
+
+	// vertex input
+	vertex_input_state := vk.PipelineVertexInputStateCreateInfo {
+		sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+	}
+
+	// input assembly
+	input_assembly_state := vk.PipelineInputAssemblyStateCreateInfo {
+		sType                  = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+		topology               = .TRIANGLE_LIST,
+		primitiveRestartEnable = false,
+	}
+
+	// viewport and scissor
+	viewport_state := vk.PipelineViewportStateCreateInfo {
+		sType         = .PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+		scissorCount  = 1,
+		viewportCount = 1,
+	}
+
+	// rasterizer
+	raster_state := vk.PipelineRasterizationStateCreateInfo {
+		sType                   = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+		depthClampEnable        = false,
+		rasterizerDiscardEnable = false,
+		polygonMode             = .FILL,
+		lineWidth               = 1,
+		cullMode                = {.BACK},
+		frontFace               = .CLOCKWISE,
+		depthBiasEnable         = false,
+	}
+
+	// multisampling
+	multisampling := vk.PipelineMultisampleStateCreateInfo {
+		sType                = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+		sampleShadingEnable  = false,
+		rasterizationSamples = {._1},
+	}
+
+	// color blending
+	color_blend_attachment := vk.PipelineColorBlendAttachmentState {
+		colorWriteMask = {.R, .G, .B, .A},
+		blendEnable    = false,
+	}
+	color_blend_state := vk.PipelineColorBlendStateCreateInfo {
+		sType           = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+		logicOpEnable   = false,
+		attachmentCount = 1,
+		pAttachments    = &color_blend_attachment,
+	}
+
+	// layout
+	layout_create_info := vk.PipelineLayoutCreateInfo {
+		sType = .PIPELINE_LAYOUT_CREATE_INFO,
+	}
+	layout: vk.PipelineLayout
+	result := vk.CreatePipelineLayout(device, &layout_create_info, nil, &layout)
+	if result != .SUCCESS {
+		panic("Failed to create graphics pipeline.")
+	}
+
+	return layout
 }
 
 create_shader_module :: proc(device: vk.Device, src: []u32) -> vk.ShaderModule {

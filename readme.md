@@ -68,6 +68,10 @@ Create the image views for the swapchain images.
 
 Create and compile the vertex and fragment shaders, load them, and the shader modules.
 
+### 1.3.3: Fixed functions [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Fixed_functions)
+
+Setup the states of the fixed functions of the graphics pipeline and create the pipeline layout.
+
 
 
 
