@@ -76,6 +76,10 @@ Setup the states of the fixed functions of the graphics pipeline and create the 
 
 Create the render pass describing the attachments to use during rendering.
 
+### 1.3.5: Graphics pipeline conclusion [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Conclusion)
+
+Finish the graphics pipeline creation.
+
 
 
 [0]: https://vulkan-tutorial.com/

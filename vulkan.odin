@@ -120,11 +120,17 @@ main :: proc() {
 	}
 	fmt.println("Vulkan render pass created.")
 
-	graphics_pipeline_layout := create_graphics_pipeline(device, swapchain)
+	graphics_pipeline_layout, graphics_pipeline := create_graphics_pipeline(
+		device,
+		swapchain,
+		render_pass,
+	)
 	defer {
 		vk.DestroyPipelineLayout(device, graphics_pipeline_layout, nil)
+		vk.DestroyPipeline(device, graphics_pipeline, nil)
 		fmt.println("Vulkan graphics pipeline and layout destroyed.")
 	}
+	fmt.println("Vulkan graphics pipeline and layout created.")
 
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
@@ -733,7 +739,14 @@ create_render_pass :: proc(device: vk.Device, swapchain: Swapchain) -> vk.Render
 	return render_pass
 }
 
-create_graphics_pipeline :: proc(device: vk.Device, swapchain: Swapchain) -> vk.PipelineLayout {
+create_graphics_pipeline :: proc(
+	device: vk.Device,
+	swapchain: Swapchain,
+	render_pass: vk.RenderPass,
+) -> (
+	vk.PipelineLayout,
+	vk.Pipeline,
+) {
 	// shader modules
 	vertex_shader_src := #load("shaders/vertex.spv", []u32)
 	vertex_shader_module := create_shader_module(device, vertex_shader_src)
@@ -832,10 +845,33 @@ create_graphics_pipeline :: proc(device: vk.Device, swapchain: Swapchain) -> vk.
 	layout: vk.PipelineLayout
 	result := vk.CreatePipelineLayout(device, &layout_create_info, nil, &layout)
 	if result != .SUCCESS {
+		panic("Failed to create graphics pipeline layout.")
+	}
+
+	// pipeline
+	create_info := vk.GraphicsPipelineCreateInfo {
+		sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
+		stageCount          = u32(len(shader_stages)),
+		pStages             = raw_data(shader_stages),
+		pVertexInputState   = &vertex_input_state,
+		pInputAssemblyState = &input_assembly_state,
+		pViewportState      = &viewport_state,
+		pRasterizationState = &raster_state,
+		pMultisampleState   = &multisampling,
+		pColorBlendState    = &color_blend_state,
+		pDynamicState       = &dynamic_state,
+		layout              = layout,
+		renderPass          = render_pass,
+		subpass             = 0,
+	}
+
+	pipeline: vk.Pipeline
+	result = vk.CreateGraphicsPipelines(device, {}, 1, &create_info, nil, &pipeline)
+	if result != .SUCCESS {
 		panic("Failed to create graphics pipeline.")
 	}
 
-	return layout
+	return layout, pipeline
 }
 
 create_shader_module :: proc(device: vk.Device, src: []u32) -> vk.ShaderModule {
