@@ -80,6 +80,10 @@ Create the render pass describing the attachments to use during rendering.
 
 Finish the graphics pipeline creation.
 
+### 1.4.1: Framebuffers [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Drawing/Framebuffers)
+
+Create the swapchain framebuffers from the swapchain image views and the render pass.
+
 
 
 [0]: https://vulkan-tutorial.com/

@@ -120,6 +120,21 @@ main :: proc() {
 	}
 	fmt.println("Vulkan render pass created.")
 
+	swapchain_framebuffers := create_swapchain_framebuffers(
+		device,
+		swapchain,
+		swapchain_image_views,
+		render_pass,
+	)
+	defer {
+		for sfb in swapchain_framebuffers {
+			vk.DestroyFramebuffer(device, sfb, nil)
+		}
+		delete(swapchain_framebuffers)
+		fmt.println("Vulkan swapchain framebuffers destroyed.")
+	}
+	fmt.println("Vulkan swapchain framebuffers created.")
+
 	graphics_pipeline_layout, graphics_pipeline := create_graphics_pipeline(
 		device,
 		swapchain,
@@ -737,6 +752,32 @@ create_render_pass :: proc(device: vk.Device, swapchain: Swapchain) -> vk.Render
 		panic("Failed to create render pass.")
 	}
 	return render_pass
+}
+
+create_swapchain_framebuffers :: proc(
+	device: vk.Device,
+	swapchain: Swapchain,
+	views: []vk.ImageView,
+	render_pass: vk.RenderPass,
+) -> []vk.Framebuffer {
+	framebuffers := make([]vk.Framebuffer, len(views))
+	for &view, index in views {
+		create_info := vk.FramebufferCreateInfo {
+			sType           = .FRAMEBUFFER_CREATE_INFO,
+			renderPass      = render_pass,
+			attachmentCount = 1,
+			pAttachments    = &view,
+			width           = swapchain.extent.width,
+			height          = swapchain.extent.height,
+			layers          = 1,
+		}
+
+		result := vk.CreateFramebuffer(device, &create_info, nil, &framebuffers[index])
+		if result != .SUCCESS {
+			panic("Failed to create swapchain framebuffer.")
+		}
+	}
+	return framebuffers
 }
 
 create_graphics_pipeline :: proc(
