@@ -139,10 +139,14 @@ main :: proc() {
 	}
 	fmt.println("Vulkan sync objects created.")
 
-	vertex_buffer, vertex_buffer_memory := create_vertex_buffer(device, pdevice.handle)
+	vertex_buffer, vertex_buffer_memory := create_vertex_buffer(
+		device,
+		pdevice.handle,
+		command_pool,
+		graphics_queue,
+	)
 	defer {
-		vk.DestroyBuffer(device, vertex_buffer, nil)
-		vk.FreeMemory(device, vertex_buffer_memory, nil)
+		destroy_buffer(device, vertex_buffer, vertex_buffer_memory)
 		fmt.println("Vertex buffer destroyed.")
 	}
 	fmt.println("Vertex buffer created.")

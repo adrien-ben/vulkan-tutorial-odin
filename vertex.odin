@@ -40,14 +40,64 @@ get_vertex_attribute_descriptions :: proc() -> [2]vk.VertexInputAttributeDescrip
 create_vertex_buffer :: proc(
 	device: vk.Device,
 	pdevice: vk.PhysicalDevice,
+	command_pool: vk.CommandPool,
+	queue: vk.Queue,
+) -> (
+	vk.Buffer,
+	vk.DeviceMemory,
+) {
+	size: vk.DeviceSize = size_of(Vertex) * len(VERTICES)
+	staging_buffer, staging_buffer_mem := create_buffer(
+		device,
+		pdevice,
+		size,
+		{.TRANSFER_SRC},
+		{.HOST_VISIBLE, .HOST_COHERENT},
+	)
+
+	data: rawptr
+	result := vk.MapMemory(device, staging_buffer_mem, 0, size, {}, &data)
+	if result != .SUCCESS {
+		panic("Failed to map memory.")
+	}
+	intrinsics.mem_copy(data, raw_data(VERTICES[:]), size)
+	vk.UnmapMemory(device, staging_buffer_mem)
+
+
+	final_buffer, final_buffer_mem := create_buffer(
+		device,
+		pdevice,
+		size,
+		{.TRANSFER_DST, .VERTEX_BUFFER},
+		{.DEVICE_LOCAL},
+	)
+
+	copy_buffer(device, command_pool, queue, staging_buffer, final_buffer, size)
+
+	destroy_buffer(device, staging_buffer, staging_buffer_mem)
+
+	return final_buffer, final_buffer_mem
+}
+
+destroy_buffer :: proc(device: vk.Device, buffer: vk.Buffer, memory: vk.DeviceMemory) {
+	vk.DestroyBuffer(device, buffer, nil)
+	vk.FreeMemory(device, memory, nil)
+}
+
+create_buffer :: proc(
+	device: vk.Device,
+	pdevice: vk.PhysicalDevice,
+	size: vk.DeviceSize,
+	usage: vk.BufferUsageFlags,
+	properties: vk.MemoryPropertyFlags,
 ) -> (
 	vk.Buffer,
 	vk.DeviceMemory,
 ) {
 	create_info := vk.BufferCreateInfo {
 		sType       = .BUFFER_CREATE_INFO,
-		size        = size_of(Vertex) * len(VERTICES),
-		usage       = {.VERTEX_BUFFER},
+		size        = size,
+		usage       = usage,
 		sharingMode = .EXCLUSIVE,
 	}
 
@@ -61,11 +111,7 @@ create_vertex_buffer :: proc(
 	vk.GetBufferMemoryRequirements(device, buffer, &requirements)
 
 
-	memory_type, found := find_memory_type(
-		pdevice,
-		requirements.memoryTypeBits,
-		{.HOST_VISIBLE, .HOST_COHERENT},
-	)
+	memory_type, found := find_memory_type(pdevice, requirements.memoryTypeBits, properties)
 	if !found {
 		panic("Failed to find compatible memory type for vertex buffer memory.")
 	}
@@ -86,14 +132,6 @@ create_vertex_buffer :: proc(
 	if result != .SUCCESS {
 		panic("Failed to bind memory to Vulkan buffer.")
 	}
-
-	data: rawptr
-	result = vk.MapMemory(device, memory, 0, create_info.size, {}, &data)
-	if result != .SUCCESS {
-		panic("Failed to map memory.")
-	}
-	intrinsics.mem_copy(data, raw_data(VERTICES[:]), create_info.size)
-	vk.UnmapMemory(device, memory)
 
 	return buffer, memory
 }
@@ -120,4 +158,62 @@ find_memory_type :: proc(
 	}
 
 	return 0, false
+}
+
+copy_buffer :: proc(
+	device: vk.Device,
+	command_pool: vk.CommandPool,
+	queue: vk.Queue,
+	src, dst: vk.Buffer,
+	size: vk.DeviceSize,
+) {
+	alloc_info := vk.CommandBufferAllocateInfo {
+		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
+		level              = .PRIMARY,
+		commandPool        = command_pool,
+		commandBufferCount = 1,
+	}
+
+	command_buffer: vk.CommandBuffer
+	result := vk.AllocateCommandBuffers(device, &alloc_info, &command_buffer)
+	if result != .SUCCESS {
+		panic("Failed to allocate command buffer for buffer copy.")
+	}
+
+	begin_info := vk.CommandBufferBeginInfo {
+		sType = .COMMAND_BUFFER_BEGIN_INFO,
+		flags = {.ONE_TIME_SUBMIT},
+	}
+	result = vk.BeginCommandBuffer(command_buffer, &begin_info)
+	if result != .SUCCESS {
+		panic("Failed to begin command buffer for buffer copy.")
+	}
+
+	copy_region := vk.BufferCopy {
+		size = size,
+	}
+	vk.CmdCopyBuffer(command_buffer, src, dst, 1, &copy_region)
+
+	result = vk.EndCommandBuffer(command_buffer)
+	if result != .SUCCESS {
+		panic("Failed to end command buffer for copy.")
+	}
+
+	submit_info := vk.SubmitInfo {
+		sType              = .SUBMIT_INFO,
+		commandBufferCount = 1,
+		pCommandBuffers    = &command_buffer,
+	}
+
+	result = vk.QueueSubmit(queue, 1, &submit_info, {})
+	if result != .SUCCESS {
+		panic("Failed to submit commands for buffer copy.")
+	}
+
+	result = vk.QueueWaitIdle(queue)
+	if result != .SUCCESS {
+		panic("Failed to wait for queue to be idle when copying buffer.")
+	}
+
+	vk.FreeCommandBuffers(device, command_pool, 1, &command_buffer)
 }

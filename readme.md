@@ -114,6 +114,10 @@ Move hardcoded vertices from the vertex shader to the application code and updat
 
 Create the actual vertex buffer and its memory, fill it and bind it before drawing.
 
+### 2.3: Staging buffer [:rabbit2:](https://vulkan-tutorial.com/Vertex_buffers/Staging_buffer)
+
+Create a buffer whose memory is local to the graphics card and a staging buffer from which data is tranfered.
+
 
 
 [0]: https://vulkan-tutorial.com/
