@@ -104,6 +104,12 @@ Handle swapchain recreation and window's resize.
 
 > Resizing detection is also done differently, `glfwSetFramebufferSizeCallback` is not used and we just manually check if the framebuffer was resized with `glfwGetFramebufferSize`.
 
+### 2.1: Vertex input description [:rabbit2:](https://vulkan-tutorial.com/Vertex_buffers/Vertex_input_description)
+
+Move hardcoded vertices from the vertex shader to the application code and update pipeline's vertex input info.
+
+> A new `vertex.odin` file is added to keep things more manageable.
+
 
 
 [0]: https://vulkan-tutorial.com/

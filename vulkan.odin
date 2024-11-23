@@ -1028,8 +1028,14 @@ create_graphics_pipeline :: proc(
 	}
 
 	// vertex input
+	binding_desc := get_vertex_binding_description()
+	attrib_descs := get_vertex_attribute_descriptions()
 	vertex_input_state := vk.PipelineVertexInputStateCreateInfo {
-		sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+		sType                           = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+		vertexBindingDescriptionCount   = 1,
+		pVertexBindingDescriptions      = &binding_desc,
+		vertexAttributeDescriptionCount = len(attrib_descs),
+		pVertexAttributeDescriptions    = raw_data(attrib_descs[:]),
 	}
 
 	// input assembly
