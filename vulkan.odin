@@ -151,6 +151,18 @@ main :: proc() {
 	}
 	fmt.println("Vertex buffer created.")
 
+	index_buffer, index_buffer_memory := create_index_buffer(
+		device,
+		pdevice.handle,
+		command_pool,
+		graphics_queue,
+	)
+	defer {
+		destroy_buffer(device, index_buffer, index_buffer_memory)
+		fmt.println("Index buffer destroyed.")
+	}
+	fmt.println("Index buffer created.")
+
 	current_frame := 0
 	is_swapchain_dirty := false
 	fb_w, fb_h := glfw.GetFramebufferSize(window)
@@ -232,6 +244,7 @@ main :: proc() {
 			swapchain.config,
 			graphics_pipeline,
 			&vertex_buffer,
+			index_buffer,
 		)
 
 		submit_info := vk.SubmitInfo {
@@ -1188,6 +1201,7 @@ record_command_buffer :: proc(
 	config: SwapchainConfig,
 	pipeline: vk.Pipeline,
 	vertex_buffer: ^vk.Buffer,
+	index_buffer: vk.Buffer,
 ) {
 	cmd_begin_info := vk.CommandBufferBeginInfo {
 		sType = .COMMAND_BUFFER_BEGIN_INFO,
@@ -1214,6 +1228,7 @@ record_command_buffer :: proc(
 
 	offset: vk.DeviceSize = 0
 	vk.CmdBindVertexBuffers(buffer, 0, 1, vertex_buffer, &offset)
+	vk.CmdBindIndexBuffer(buffer, index_buffer, 0, .UINT16)
 
 	viewport := vk.Viewport {
 		width    = f32(config.extent.width),
@@ -1227,7 +1242,7 @@ record_command_buffer :: proc(
 	}
 	vk.CmdSetScissor(buffer, 0, 1, &scissor)
 
-	vk.CmdDraw(buffer, len(VERTICES), 1, 0, 0)
+	vk.CmdDrawIndexed(buffer, u32(len(INDICES)), 1, 0, 0, 0)
 
 	vk.CmdEndRenderPass(buffer)
 

@@ -12,10 +12,12 @@ Vertex :: struct {
 }
 
 VERTICES := [?]Vertex {
-	{pos = {0, -0.5}, color = {1, 0, 0}},
-	{pos = {0.5, 0.5}, color = {0, 1, 0}},
-	{pos = {-0.5, 0.5}, color = {0, 0, 1}},
+	{pos = {-0.5, -0.5}, color = {1, 0, 0}},
+	{pos = {0.5, -0.5}, color = {0, 1, 0}},
+	{pos = {0.5, 0.5}, color = {0, 0, 1}},
+	{pos = {-0.5, 0.5}, color = {1, 1, 1}},
 }
+INDICES := [?]u16{0, 1, 2, 2, 3, 0}
 
 get_vertex_binding_description :: proc() -> vk.VertexInputBindingDescription {
 	return vk.VertexInputBindingDescription {
@@ -69,6 +71,47 @@ create_vertex_buffer :: proc(
 		pdevice,
 		size,
 		{.TRANSFER_DST, .VERTEX_BUFFER},
+		{.DEVICE_LOCAL},
+	)
+
+	copy_buffer(device, command_pool, queue, staging_buffer, final_buffer, size)
+
+	destroy_buffer(device, staging_buffer, staging_buffer_mem)
+
+	return final_buffer, final_buffer_mem
+}
+
+create_index_buffer :: proc(
+	device: vk.Device,
+	pdevice: vk.PhysicalDevice,
+	command_pool: vk.CommandPool,
+	queue: vk.Queue,
+) -> (
+	vk.Buffer,
+	vk.DeviceMemory,
+) {
+	size: vk.DeviceSize = size_of(u16) * len(INDICES)
+	staging_buffer, staging_buffer_mem := create_buffer(
+		device,
+		pdevice,
+		size,
+		{.TRANSFER_SRC},
+		{.HOST_VISIBLE, .HOST_COHERENT},
+	)
+
+	data: rawptr
+	result := vk.MapMemory(device, staging_buffer_mem, 0, size, {}, &data)
+	if result != .SUCCESS {
+		panic("Failed to map memory.")
+	}
+	intrinsics.mem_copy(data, raw_data(INDICES[:]), size)
+	vk.UnmapMemory(device, staging_buffer_mem)
+
+	final_buffer, final_buffer_mem := create_buffer(
+		device,
+		pdevice,
+		size,
+		{.TRANSFER_DST, .INDEX_BUFFER},
 		{.DEVICE_LOCAL},
 	)
 

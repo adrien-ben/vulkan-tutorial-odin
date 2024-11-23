@@ -118,6 +118,10 @@ Create the actual vertex buffer and its memory, fill it and bind it before drawi
 
 Create a buffer whose memory is local to the graphics card and a staging buffer from which data is tranfered.
 
+### 2.4: Index buffer [:rabbit2:](https://vulkan-tutorial.com/Vertex_buffers/Index_buffer)
+
+Render a rectangle without duplicating vertices by using an index buffer.
+
 
 
 [0]: https://vulkan-tutorial.com/
