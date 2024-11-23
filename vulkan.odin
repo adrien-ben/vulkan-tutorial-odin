@@ -139,6 +139,14 @@ main :: proc() {
 	}
 	fmt.println("Vulkan sync objects created.")
 
+	vertex_buffer, vertex_buffer_memory := create_vertex_buffer(device, pdevice.handle)
+	defer {
+		vk.DestroyBuffer(device, vertex_buffer, nil)
+		vk.FreeMemory(device, vertex_buffer_memory, nil)
+		fmt.println("Vertex buffer destroyed.")
+	}
+	fmt.println("Vertex buffer created.")
+
 	current_frame := 0
 	is_swapchain_dirty := false
 	fb_w, fb_h := glfw.GetFramebufferSize(window)
@@ -219,6 +227,7 @@ main :: proc() {
 			swapchain.framebuffers[image_index],
 			swapchain.config,
 			graphics_pipeline,
+			&vertex_buffer,
 		)
 
 		submit_info := vk.SubmitInfo {
@@ -1174,6 +1183,7 @@ record_command_buffer :: proc(
 	framebuffer: vk.Framebuffer,
 	config: SwapchainConfig,
 	pipeline: vk.Pipeline,
+	vertex_buffer: ^vk.Buffer,
 ) {
 	cmd_begin_info := vk.CommandBufferBeginInfo {
 		sType = .COMMAND_BUFFER_BEGIN_INFO,
@@ -1198,6 +1208,9 @@ record_command_buffer :: proc(
 	vk.CmdBeginRenderPass(buffer, &render_pass_begin_info, .INLINE)
 	vk.CmdBindPipeline(buffer, .GRAPHICS, pipeline)
 
+	offset: vk.DeviceSize = 0
+	vk.CmdBindVertexBuffers(buffer, 0, 1, vertex_buffer, &offset)
+
 	viewport := vk.Viewport {
 		width    = f32(config.extent.width),
 		height   = f32(config.extent.height),
@@ -1210,7 +1223,7 @@ record_command_buffer :: proc(
 	}
 	vk.CmdSetScissor(buffer, 0, 1, &scissor)
 
-	vk.CmdDraw(buffer, 3, 1, 0, 0)
+	vk.CmdDraw(buffer, len(VERTICES), 1, 0, 0)
 
 	vk.CmdEndRenderPass(buffer)
 

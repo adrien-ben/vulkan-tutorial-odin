@@ -110,6 +110,10 @@ Move hardcoded vertices from the vertex shader to the application code and updat
 
 > A new `vertex.odin` file is added to keep things more manageable.
 
+### 2.2: Vertex buffer creation [:rabbit2:](https://vulkan-tutorial.com/Vertex_buffers/Vertex_buffer_creation)
+
+Create the actual vertex buffer and its memory, fill it and bind it before drawing.
+
 
 
 [0]: https://vulkan-tutorial.com/
