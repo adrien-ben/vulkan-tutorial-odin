@@ -30,7 +30,6 @@ main :: proc() {
 	fmt.println("GLFW initialized.")
 
 	glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
-	glfw.WindowHint(glfw.RESIZABLE, false)
 	window := glfw.CreateWindow(WIN_WIDTH, WIN_HEIGHT, "Vulkan", nil, nil)
 	if window == nil {
 		panic("Failed to create GLFW window.")
@@ -93,55 +92,27 @@ main :: proc() {
 	present_queue: vk.Queue
 	vk.GetDeviceQueue(device, u32(pdevice.queue_family_indices.present_family), 0, &present_queue)
 
-	swapchain := create_swapchain(device, pdevice, surface, window)
+	swapchain_support := query_swapchain_support(pdevice.handle, surface)
 	defer {
-		vk.DestroySwapchainKHR(device, swapchain.handle, nil)
-		fmt.println("Vulkan swapchain destroyed.")
+		delete_swapchain_support_details(swapchain_support)
 	}
-	fmt.printfln("Vulkan swapchain created: %#v.", swapchain)
+	swapchain_config := select_swapchain_config(swapchain_support, window)
 
-	swapchain_images := get_swapchain_images(device, swapchain)
-	defer {
-		delete(swapchain_images)
-	}
-
-	swapchain_image_views := create_swapchain_image_views(device, swapchain, swapchain_images)
-	defer {
-		for view in swapchain_image_views {
-			vk.DestroyImageView(device, view, nil)
-		}
-		delete(swapchain_image_views)
-		fmt.println("Vulkan swapchain image views destroyed.")
-	}
-	fmt.println("Vulkan swapchain image views created.")
-
-	render_pass := create_render_pass(device, swapchain)
+	render_pass := create_render_pass(device, swapchain_config)
 	defer {
 		vk.DestroyRenderPass(device, render_pass, nil)
 		fmt.println("Vulkan render pass destroyed.")
 	}
 	fmt.println("Vulkan render pass created.")
 
-	swapchain_framebuffers := create_swapchain_framebuffers(
-		device,
-		swapchain,
-		swapchain_image_views,
-		render_pass,
-	)
+	swapchain := create_swapchain(device, pdevice, surface, render_pass, swapchain_config)
 	defer {
-		for sfb in swapchain_framebuffers {
-			vk.DestroyFramebuffer(device, sfb, nil)
-		}
-		delete(swapchain_framebuffers)
-		fmt.println("Vulkan swapchain framebuffers destroyed.")
+		destroy_swapchain(device, swapchain)
+		fmt.println("Swapchain destroyed.")
 	}
-	fmt.println("Vulkan swapchain framebuffers created.")
+	fmt.println("Swapchain created.")
 
-	graphics_pipeline_layout, graphics_pipeline := create_graphics_pipeline(
-		device,
-		swapchain,
-		render_pass,
-	)
+	graphics_pipeline_layout, graphics_pipeline := create_graphics_pipeline(device, render_pass)
 	defer {
 		vk.DestroyPipelineLayout(device, graphics_pipeline_layout, nil)
 		vk.DestroyPipeline(device, graphics_pipeline, nil)
@@ -169,22 +140,45 @@ main :: proc() {
 	fmt.println("Vulkan sync objects created.")
 
 	current_frame := 0
+	is_swapchain_dirty := false
+	fb_w, fb_h := glfw.GetFramebufferSize(window)
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
+
+		// check if window was resized and wait if it is minimized
+		w, h := glfw.GetFramebufferSize(window)
+		if w != fb_w || h != fb_h {
+			if w == 0 || h == 0 {
+				continue
+			}
+			fmt.println("Window has been resized.")
+			fb_w = w
+			fb_h = h
+			is_swapchain_dirty = true
+			continue
+		}
+
+		result: vk.Result
+		if is_swapchain_dirty {
+			swapchain = recreate_swapchain(
+				device,
+				pdevice,
+				window,
+				surface,
+				render_pass,
+				swapchain,
+			)
+			fmt.println("Swapchain recreated.")
+			is_swapchain_dirty = false
+		}
 
 		sync_obj := sync_objs[current_frame]
 		command_buffer := command_buffers[current_frame]
 
 		// wait for previous frame
-		result := vk.WaitForFences(device, 1, &sync_obj.in_flight, true, max(u64))
+		result = vk.WaitForFences(device, 1, &sync_obj.in_flight, true, max(u64))
 		if result != .SUCCESS {
 			fmt.eprintfln("Failed to wait for fence: %v.", result)
-			break
-		}
-
-		result = vk.ResetFences(device, 1, &sync_obj.in_flight)
-		if result != .SUCCESS {
-			fmt.eprintfln("Failed to reset fence: %v.", result)
 			break
 		}
 
@@ -198,8 +192,17 @@ main :: proc() {
 			{},
 			&image_index,
 		)
-		if result != .SUCCESS {
+		if result == .ERROR_OUT_OF_DATE_KHR {
+			is_swapchain_dirty = true
+			continue
+		} else if result != .SUCCESS && result != .SUBOPTIMAL_KHR {
 			fmt.eprintfln("Failed to acquire swapchain image: %v.", result)
+			break
+		}
+
+		result = vk.ResetFences(device, 1, &sync_obj.in_flight)
+		if result != .SUCCESS {
+			fmt.eprintfln("Failed to reset fence: %v.", result)
 			break
 		}
 
@@ -213,8 +216,8 @@ main :: proc() {
 		record_command_buffer(
 			command_buffer,
 			render_pass,
-			swapchain_framebuffers[image_index],
-			swapchain,
+			swapchain.framebuffers[image_index],
+			swapchain.config,
 			graphics_pipeline,
 		)
 
@@ -244,8 +247,10 @@ main :: proc() {
 			pImageIndices      = &image_index,
 		}
 		result = vk.QueuePresentKHR(present_queue, &present_info)
-		if result != .SUCCESS {
-			fmt.eprintfln("Failed to present: %v.", result)
+		if result == .ERROR_OUT_OF_DATE_KHR || result == .SUBOPTIMAL_KHR {
+			is_swapchain_dirty = true
+		} else if result != .SUCCESS {
+			fmt.eprintfln("Failed to acquire swapchain image: %v.", result)
 			break
 		}
 
@@ -681,51 +686,47 @@ query_swapchain_support :: proc(
 	return details
 }
 
-Swapchain :: struct {
-	handle: vk.SwapchainKHR,
-	format: vk.SurfaceFormatKHR,
-	extent: vk.Extent2D,
+SwapchainConfig :: struct {
+	format:       vk.SurfaceFormatKHR,
+	present_mode: vk.PresentModeKHR,
+	extent:       vk.Extent2D,
+	image_count:  u32,
+	transform:    vk.SurfaceTransformFlagsKHR,
 }
 
-create_swapchain :: proc(
-	device: vk.Device,
-	pdevice: PhysicalDevice,
-	surface: vk.SurfaceKHR,
+select_swapchain_config :: proc(
+	details: SwapchainSupportDetails,
 	window: glfw.WindowHandle,
-) -> Swapchain {
-	details := query_swapchain_support(pdevice.handle, surface)
-	defer {
-		delete_swapchain_support_details(details)
-	}
+) -> SwapchainConfig {
+	config: SwapchainConfig
 
 	// select format
-	format := details.formats[0]
+	config.format = details.formats[0]
 	for f in details.formats {
 		if f.format == .B8G8R8A8_SRGB && f.colorSpace == .SRGB_NONLINEAR {
-			format = f
+			config.format = f
 		}
 	}
 
 	// select present mode
-	present_mode := vk.PresentModeKHR.FIFO
+	config.present_mode = vk.PresentModeKHR.FIFO
 	for m in details.present_modes {
 		if m == .MAILBOX {
-			present_mode = m
+			config.present_mode = m
 		}
 	}
 
 	// select swapchain extent
-	extent: vk.Extent2D
 	if details.capabilities.currentExtent.width != max(u32) {
-		extent = details.capabilities.currentExtent
+		config.extent = details.capabilities.currentExtent
 	} else {
 		w, h := glfw.GetFramebufferSize(window)
-		extent.width = clamp(
+		config.extent.width = clamp(
 			u32(w),
 			details.capabilities.minImageExtent.width,
 			details.capabilities.maxImageExtent.width,
 		)
-		extent.height = clamp(
+		config.extent.height = clamp(
 			u32(h),
 			details.capabilities.minImageExtent.height,
 			details.capabilities.maxImageExtent.height,
@@ -733,94 +734,21 @@ create_swapchain :: proc(
 	}
 
 	// select image count
-	image_count := details.capabilities.minImageCount + 1
-	if details.capabilities.maxImageCount > 0 && image_count > details.capabilities.maxImageCount {
-		image_count = details.capabilities.maxImageCount
+	config.image_count = details.capabilities.minImageCount + 1
+	if details.capabilities.maxImageCount > 0 &&
+	   config.image_count > details.capabilities.maxImageCount {
+		config.image_count = details.capabilities.maxImageCount
 	}
 
-	// create the swapchain
-	create_info := vk.SwapchainCreateInfoKHR {
-		sType            = .SWAPCHAIN_CREATE_INFO_KHR,
-		surface          = surface,
-		minImageCount    = image_count,
-		imageFormat      = format.format,
-		imageColorSpace  = format.colorSpace,
-		imageExtent      = extent,
-		imageArrayLayers = 1,
-		imageUsage       = {.COLOR_ATTACHMENT},
-		preTransform     = details.capabilities.currentTransform,
-		compositeAlpha   = {.OPAQUE},
-		presentMode      = present_mode,
-		clipped          = true,
-	}
+	// set transform
+	config.transform = details.capabilities.currentTransform
 
-	q_indices := []u32 {
-		u32(pdevice.queue_family_indices.graphics_family),
-		u32(pdevice.queue_family_indices.present_family),
-	}
-	if pdevice.queue_family_indices.graphics_family !=
-	   pdevice.queue_family_indices.present_family {
-		create_info.imageSharingMode = .CONCURRENT
-		create_info.queueFamilyIndexCount = u32(len(q_indices))
-		create_info.pQueueFamilyIndices = raw_data(q_indices)
-	} else {
-		create_info.imageSharingMode = .EXCLUSIVE
-	}
-
-	swapchain: vk.SwapchainKHR
-	result := vk.CreateSwapchainKHR(device, &create_info, nil, &swapchain)
-	if result != .SUCCESS {
-		panic("Failed to create swapchain.")
-	}
-	return Swapchain{handle = swapchain, format = format, extent = extent}
+	return config
 }
 
-get_swapchain_images :: proc(device: vk.Device, swapchain: Swapchain) -> []vk.Image {
-	img_count: u32
-	result := vk.GetSwapchainImagesKHR(device, swapchain.handle, &img_count, nil)
-	if result != .SUCCESS {
-		panic("Failed to get swapchain image count.")
-	}
-	imgs := make([]vk.Image, img_count)
-	result = vk.GetSwapchainImagesKHR(device, swapchain.handle, &img_count, raw_data(imgs))
-	if result != .SUCCESS {
-		panic("Failed to get swapchain images.")
-	}
-	return imgs
-}
-
-create_swapchain_image_views :: proc(
-	device: vk.Device,
-	swapchain: Swapchain,
-	imgs: []vk.Image,
-) -> []vk.ImageView {
-	views := make([]vk.ImageView, len(imgs))
-	for img, index in imgs {
-		create_info := vk.ImageViewCreateInfo {
-			sType = .IMAGE_VIEW_CREATE_INFO,
-			image = img,
-			viewType = .D2,
-			format = swapchain.format.format,
-			components = {r = .IDENTITY, g = .IDENTITY, b = .IDENTITY, a = .IDENTITY},
-			subresourceRange = {
-				aspectMask = {.COLOR},
-				baseMipLevel = 0,
-				levelCount = 1,
-				baseArrayLayer = 0,
-				layerCount = 1,
-			},
-		}
-		result := vk.CreateImageView(device, &create_info, nil, &views[index])
-		if result != .SUCCESS {
-			panic("Failed to create swapchain image view.")
-		}
-	}
-	return views
-}
-
-create_render_pass :: proc(device: vk.Device, swapchain: Swapchain) -> vk.RenderPass {
+create_render_pass :: proc(device: vk.Device, config: SwapchainConfig) -> vk.RenderPass {
 	color_attachment := vk.AttachmentDescription {
-		format         = swapchain.format.format,
+		format         = config.format.format,
 		samples        = {._1},
 		loadOp         = .CLEAR,
 		storeOp        = .STORE,
@@ -868,9 +796,166 @@ create_render_pass :: proc(device: vk.Device, swapchain: Swapchain) -> vk.Render
 	return render_pass
 }
 
+Swapchain :: struct {
+	handle:       vk.SwapchainKHR,
+	config:       SwapchainConfig,
+	images:       []vk.Image,
+	views:        []vk.ImageView,
+	framebuffers: []vk.Framebuffer,
+}
+
+destroy_swapchain :: proc(device: vk.Device, swapchain: Swapchain) {
+	for fb in swapchain.framebuffers {
+		vk.DestroyFramebuffer(device, fb, nil)
+	}
+	delete(swapchain.framebuffers)
+	fmt.println("Vulkan swapchain framebuffers destroyed.")
+
+
+	for view in swapchain.views {
+		vk.DestroyImageView(device, view, nil)
+	}
+	delete(swapchain.views)
+	fmt.println("Vulkan swapchain image views destroyed.")
+
+	delete(swapchain.images)
+
+	vk.DestroySwapchainKHR(device, swapchain.handle, nil)
+	fmt.println("Vulkan swapchain destroyed.")
+}
+
+create_swapchain :: proc(
+	device: vk.Device,
+	pdevice: PhysicalDevice,
+	surface: vk.SurfaceKHR,
+	render_pass: vk.RenderPass,
+	config: SwapchainConfig,
+) -> Swapchain {
+	// create the swapchain
+	create_info := vk.SwapchainCreateInfoKHR {
+		sType            = .SWAPCHAIN_CREATE_INFO_KHR,
+		surface          = surface,
+		minImageCount    = config.image_count,
+		imageFormat      = config.format.format,
+		imageColorSpace  = config.format.colorSpace,
+		imageExtent      = config.extent,
+		imageArrayLayers = 1,
+		imageUsage       = {.COLOR_ATTACHMENT},
+		preTransform     = config.transform,
+		compositeAlpha   = {.OPAQUE},
+		presentMode      = config.present_mode,
+		clipped          = true,
+	}
+
+	q_indices := []u32 {
+		u32(pdevice.queue_family_indices.graphics_family),
+		u32(pdevice.queue_family_indices.present_family),
+	}
+	if pdevice.queue_family_indices.graphics_family !=
+	   pdevice.queue_family_indices.present_family {
+		create_info.imageSharingMode = .CONCURRENT
+		create_info.queueFamilyIndexCount = u32(len(q_indices))
+		create_info.pQueueFamilyIndices = raw_data(q_indices)
+	} else {
+		create_info.imageSharingMode = .EXCLUSIVE
+	}
+
+	swapchain := Swapchain {
+		config = config,
+	}
+
+	result := vk.CreateSwapchainKHR(device, &create_info, nil, &swapchain.handle)
+	if result != .SUCCESS {
+		panic("Failed to create Vulkan swapchain.")
+	}
+
+	swapchain.images = get_swapchain_images(device, swapchain.handle)
+	fmt.println("Vulkan swapchain image created.")
+
+	swapchain.views = create_swapchain_image_views(device, config, swapchain.images)
+	fmt.println("Vulkan swapchain image views created.")
+
+	swapchain.framebuffers = create_swapchain_framebuffers(
+		device,
+		config,
+		swapchain.views,
+		render_pass,
+	)
+	fmt.println("Vulkan swapchain framebuffers created.")
+
+	return swapchain
+}
+
+recreate_swapchain :: proc(
+	device: vk.Device,
+	pdevice: PhysicalDevice,
+	window: glfw.WindowHandle,
+	surface: vk.SurfaceKHR,
+	render_pass: vk.RenderPass,
+	current: Swapchain,
+) -> Swapchain {
+	result := vk.DeviceWaitIdle(device)
+	if result != .SUCCESS {
+		panic("Failed to wait for device to be idle.")
+	}
+
+	destroy_swapchain(device, current)
+
+	swapchain_support := query_swapchain_support(pdevice.handle, surface)
+	defer {
+		delete_swapchain_support_details(swapchain_support)
+	}
+	swapchain_config := select_swapchain_config(swapchain_support, window)
+
+	return create_swapchain(device, pdevice, surface, render_pass, swapchain_config)
+}
+
+get_swapchain_images :: proc(device: vk.Device, swapchain: vk.SwapchainKHR) -> []vk.Image {
+	img_count: u32
+	result := vk.GetSwapchainImagesKHR(device, swapchain, &img_count, nil)
+	if result != .SUCCESS {
+		panic("Failed to get swapchain image count.")
+	}
+	imgs := make([]vk.Image, img_count)
+	result = vk.GetSwapchainImagesKHR(device, swapchain, &img_count, raw_data(imgs))
+	if result != .SUCCESS {
+		panic("Failed to get swapchain images.")
+	}
+	return imgs
+}
+
+create_swapchain_image_views :: proc(
+	device: vk.Device,
+	config: SwapchainConfig,
+	imgs: []vk.Image,
+) -> []vk.ImageView {
+	views := make([]vk.ImageView, len(imgs))
+	for img, index in imgs {
+		create_info := vk.ImageViewCreateInfo {
+			sType = .IMAGE_VIEW_CREATE_INFO,
+			image = img,
+			viewType = .D2,
+			format = config.format.format,
+			components = {r = .IDENTITY, g = .IDENTITY, b = .IDENTITY, a = .IDENTITY},
+			subresourceRange = {
+				aspectMask = {.COLOR},
+				baseMipLevel = 0,
+				levelCount = 1,
+				baseArrayLayer = 0,
+				layerCount = 1,
+			},
+		}
+		result := vk.CreateImageView(device, &create_info, nil, &views[index])
+		if result != .SUCCESS {
+			panic("Failed to create swapchain image view.")
+		}
+	}
+	return views
+}
+
 create_swapchain_framebuffers :: proc(
 	device: vk.Device,
-	swapchain: Swapchain,
+	config: SwapchainConfig,
 	views: []vk.ImageView,
 	render_pass: vk.RenderPass,
 ) -> []vk.Framebuffer {
@@ -881,8 +966,8 @@ create_swapchain_framebuffers :: proc(
 			renderPass      = render_pass,
 			attachmentCount = 1,
 			pAttachments    = &view,
-			width           = swapchain.extent.width,
-			height          = swapchain.extent.height,
+			width           = config.extent.width,
+			height          = config.extent.height,
 			layers          = 1,
 		}
 
@@ -896,7 +981,6 @@ create_swapchain_framebuffers :: proc(
 
 create_graphics_pipeline :: proc(
 	device: vk.Device,
-	swapchain: Swapchain,
 	render_pass: vk.RenderPass,
 ) -> (
 	vk.PipelineLayout,
@@ -1082,7 +1166,7 @@ record_command_buffer :: proc(
 	buffer: vk.CommandBuffer,
 	render_pass: vk.RenderPass,
 	framebuffer: vk.Framebuffer,
-	swapchain: Swapchain,
+	config: SwapchainConfig,
 	pipeline: vk.Pipeline,
 ) {
 	cmd_begin_info := vk.CommandBufferBeginInfo {
@@ -1100,7 +1184,7 @@ record_command_buffer :: proc(
 		sType = .RENDER_PASS_BEGIN_INFO,
 		renderPass = render_pass,
 		framebuffer = framebuffer,
-		renderArea = {offset = {}, extent = swapchain.extent},
+		renderArea = {offset = {}, extent = config.extent},
 		clearValueCount = 1,
 		pClearValues = &clear_color,
 	}
@@ -1109,14 +1193,14 @@ record_command_buffer :: proc(
 	vk.CmdBindPipeline(buffer, .GRAPHICS, pipeline)
 
 	viewport := vk.Viewport {
-		width    = f32(swapchain.extent.width),
-		height   = f32(swapchain.extent.height),
+		width    = f32(config.extent.width),
+		height   = f32(config.extent.height),
 		maxDepth = 1,
 	}
 	vk.CmdSetViewport(buffer, 0, 1, &viewport)
 
 	scissor := vk.Rect2D {
-		extent = swapchain.extent,
+		extent = config.extent,
 	}
 	vk.CmdSetScissor(buffer, 0, 1, &scissor)
 

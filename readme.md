@@ -96,6 +96,14 @@ Finalize drawing the triangle to the screen!
 
 Improve rendering by allowing overlap between cpu and gpu with multiple frames in flight.
 
+### 1.5: Swap chain recreation [:rabbit2:](https://vulkan-tutorial.com/Drawing_a_triangle/Swap_chain_recreation)
+
+Handle swapchain recreation and window's resize.
+
+> There is a bit of factoring around the swapchain creation and its dependencies here.
+
+> Resizing detection is also done differently, `glfwSetFramebufferSizeCallback` is not used and we just manually check if the framebuffer was resized with `glfwGetFramebufferSize`.
+
 
 
 [0]: https://vulkan-tutorial.com/
