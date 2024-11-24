@@ -256,24 +256,7 @@ create_swapchain_image_views :: proc(
 ) -> []vk.ImageView {
 	views := make([]vk.ImageView, len(imgs))
 	for img, index in imgs {
-		create_info := vk.ImageViewCreateInfo {
-			sType = .IMAGE_VIEW_CREATE_INFO,
-			image = img,
-			viewType = .D2,
-			format = config.format.format,
-			components = {r = .IDENTITY, g = .IDENTITY, b = .IDENTITY, a = .IDENTITY},
-			subresourceRange = {
-				aspectMask = {.COLOR},
-				baseMipLevel = 0,
-				levelCount = 1,
-				baseArrayLayer = 0,
-				layerCount = 1,
-			},
-		}
-		result := vk.CreateImageView(device, &create_info, nil, &views[index])
-		if result != .SUCCESS {
-			panic("Failed to create swapchain image view.")
-		}
+		views[index] = create_image_view(device, img, config.format.format)
 	}
 	return views
 }

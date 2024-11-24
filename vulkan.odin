@@ -210,6 +210,23 @@ main :: proc() {
 	}
 	fmt.println("Texture created.")
 
+	texture_view := create_texture_image_view(device, texture)
+	defer {
+		vk.DestroyImageView(device, texture_view, nil)
+		fmt.println("Texture view destroyed.")
+	}
+	fmt.println("Texture view created.")
+
+	texture_sampler := create_texture_sampler(
+		device,
+		pdevice.properties.limits.maxSamplerAnisotropy,
+	)
+	defer {
+		vk.DestroySampler(device, texture_sampler, nil)
+		fmt.println("Texture sampler destroyed.")
+	}
+	fmt.println("Texture sampler created.")
+
 	start := time.tick_now()
 	current_frame := 0
 	is_swapchain_dirty := false
@@ -520,6 +537,7 @@ PhysicalDevice :: struct {
 	handle:               vk.PhysicalDevice,
 	name:                 string,
 	queue_family_indices: QueueFamilyIndices,
+	properties:           vk.PhysicalDeviceProperties `fmt:"-"`,
 }
 
 QueueFamilyIndices :: struct {
@@ -601,12 +619,22 @@ pick_physical_device :: proc(
 			if !all_exts_supported do continue
 		}
 
+		// check features support
+		supported_features: vk.PhysicalDeviceFeatures
+		vk.GetPhysicalDeviceFeatures(d, &supported_features)
+		if !supported_features.samplerAnisotropy {
+			fmt.eprintln("Sampler anisotropy is not supported.")
+			continue
+		}
+
 		pd_score := get_pdevice_score(properties)
 		if pd_score > best {
 			picked.handle = d
 			delete(picked.name)
 			picked.name = strings.clone_from(name)
 			picked.queue_family_indices = qfamily_indices
+			picked.properties = properties
+
 			best = pd_score
 			found = true
 		}
@@ -685,7 +713,9 @@ create_logical_device :: proc(pdevice: PhysicalDevice) -> vk.Device {
 		append(&queue_create_infos, info)
 	}
 
-	device_features := vk.PhysicalDeviceFeatures{}
+	device_features := vk.PhysicalDeviceFeatures {
+		samplerAnisotropy = true,
+	}
 
 	device_create_info := vk.DeviceCreateInfo {
 		sType                   = .DEVICE_CREATE_INFO,

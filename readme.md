@@ -135,6 +135,10 @@ Create the descriptor set pool and sets, update them to point at the proper buff
 
 Load an image file and upload its data to the GPU.
 
+### 4.2: Image view and sampler [:rabbit2:](https://vulkan-tutorial.com/Texture_mapping/Image_view_and_sampler)
+
+Create the image view and sampler and enable anisotropic filtering.
+
 
 
 [0]: https://vulkan-tutorial.com/

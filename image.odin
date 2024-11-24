@@ -209,3 +209,52 @@ copy_buffer_to_image :: proc(
 
 	end_single_time_commands(device, command_pool, command_buffer, queue)
 }
+
+create_texture_image_view :: proc(device: vk.Device, image: vk.Image) -> vk.ImageView {
+	return create_image_view(device, image, .R8G8B8A8_SRGB)
+}
+
+create_image_view :: proc(device: vk.Device, image: vk.Image, format: vk.Format) -> vk.ImageView {
+	create_info := vk.ImageViewCreateInfo {
+		sType = .IMAGE_VIEW_CREATE_INFO,
+		image = image,
+		viewType = .D2,
+		format = format,
+		subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
+	}
+
+	view: vk.ImageView
+	result := vk.CreateImageView(device, &create_info, nil, &view)
+	if result != .SUCCESS {
+		panic("Failed to create image view.")
+	}
+	return view
+}
+
+create_texture_sampler :: proc(device: vk.Device, anisotropy: f32) -> vk.Sampler {
+	create_info := vk.SamplerCreateInfo {
+		sType                   = .SAMPLER_CREATE_INFO,
+		magFilter               = .LINEAR,
+		minFilter               = .LINEAR,
+		addressModeU            = .REPEAT,
+		addressModeV            = .REPEAT,
+		addressModeW            = .REPEAT,
+		anisotropyEnable        = anisotropy > 0,
+		maxAnisotropy           = anisotropy,
+		borderColor             = .INT_OPAQUE_BLACK,
+		unnormalizedCoordinates = false,
+		compareEnable           = false,
+		compareOp               = .ALWAYS,
+		mipmapMode              = .LINEAR,
+		mipLodBias              = 0,
+		minLod                  = 0,
+		maxLod                  = 0,
+	}
+
+	sampler: vk.Sampler
+	result := vk.CreateSampler(device, &create_info, nil, &sampler)
+	if result != .SUCCESS {
+		panic("Failed to create texture sampler.")
+	}
+	return sampler
+}
