@@ -184,20 +184,6 @@ main :: proc() {
 	}
 	fmt.println("UBO buffers created.")
 
-	descriptor_pool := create_descriptor_pool(device)
-	defer {
-		vk.DestroyDescriptorPool(device, descriptor_pool, nil)
-		fmt.println("Descriptor pool destroyed.")
-	}
-	fmt.println("Descriptor pool created.")
-
-	descriptor_sets := create_descriptor_sets(
-		device,
-		descriptor_pool,
-		descriptor_set_layout,
-		ubo_buffers,
-	)
-
 	texture, texture_memory := create_texture_image(
 		device,
 		pdevice.handle,
@@ -226,6 +212,22 @@ main :: proc() {
 		fmt.println("Texture sampler destroyed.")
 	}
 	fmt.println("Texture sampler created.")
+
+	descriptor_pool := create_descriptor_pool(device)
+	defer {
+		vk.DestroyDescriptorPool(device, descriptor_pool, nil)
+		fmt.println("Descriptor pool destroyed.")
+	}
+	fmt.println("Descriptor pool created.")
+
+	descriptor_sets := create_descriptor_sets(
+		device,
+		descriptor_pool,
+		descriptor_set_layout,
+		ubo_buffers,
+		texture_view,
+		texture_sampler,
+	)
 
 	start := time.tick_now()
 	current_frame := 0

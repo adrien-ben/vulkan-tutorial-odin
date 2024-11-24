@@ -20,17 +20,25 @@ UboBuffer :: struct {
 }
 
 create_descriptor_set_layout :: proc(device: vk.Device) -> vk.DescriptorSetLayout {
-	layout_binding := vk.DescriptorSetLayoutBinding {
-		binding         = 0,
-		descriptorType  = .UNIFORM_BUFFER,
-		descriptorCount = 1,
-		stageFlags      = {.VERTEX},
+	layout_bindings := []vk.DescriptorSetLayoutBinding {
+		{
+			binding = 0,
+			descriptorType = .UNIFORM_BUFFER,
+			descriptorCount = 1,
+			stageFlags = {.VERTEX},
+		},
+		{
+			binding = 1,
+			descriptorType = .COMBINED_IMAGE_SAMPLER,
+			descriptorCount = 1,
+			stageFlags = {.FRAGMENT},
+		},
 	}
 
 	create_info := vk.DescriptorSetLayoutCreateInfo {
 		sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		bindingCount = 1,
-		pBindings    = &layout_binding,
+		bindingCount = u32(len(layout_bindings)),
+		pBindings    = raw_data(layout_bindings),
 	}
 
 	layout: vk.DescriptorSetLayout
@@ -88,15 +96,15 @@ update_uniform_buffer :: proc(
 }
 
 create_descriptor_pool :: proc(device: vk.Device) -> vk.DescriptorPool {
-	pool_size := vk.DescriptorPoolSize {
-		type            = .UNIFORM_BUFFER,
-		descriptorCount = MAX_FRAMES_IN_FLIGHT,
+	pool_sizes := []vk.DescriptorPoolSize {
+		{type = .UNIFORM_BUFFER, descriptorCount = MAX_FRAMES_IN_FLIGHT},
+		{type = .COMBINED_IMAGE_SAMPLER, descriptorCount = MAX_FRAMES_IN_FLIGHT},
 	}
 
 	create_info := vk.DescriptorPoolCreateInfo {
 		sType         = .DESCRIPTOR_POOL_CREATE_INFO,
-		poolSizeCount = 1,
-		pPoolSizes    = &pool_size,
+		poolSizeCount = u32(len(pool_sizes)),
+		pPoolSizes    = raw_data(pool_sizes),
 		maxSets       = MAX_FRAMES_IN_FLIGHT,
 	}
 
@@ -113,6 +121,8 @@ create_descriptor_sets :: proc(
 	pool: vk.DescriptorPool,
 	layout: vk.DescriptorSetLayout,
 	ubo_buffers: [MAX_FRAMES_IN_FLIGHT]UboBuffer,
+	texture_image_view: vk.ImageView,
+	texture_image_sampler: vk.Sampler,
 ) -> [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet {
 
 	layouts: [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSetLayout
@@ -140,17 +150,34 @@ create_descriptor_sets :: proc(
 			range  = size_of(UniformBufferObject),
 		}
 
-		desc_write := vk.WriteDescriptorSet {
-			sType           = .WRITE_DESCRIPTOR_SET,
-			dstSet          = set,
-			dstBinding      = 0,
-			dstArrayElement = 0,
-			descriptorType  = .UNIFORM_BUFFER,
-			descriptorCount = 1,
-			pBufferInfo     = &buffer_info,
+		image_info := vk.DescriptorImageInfo {
+			imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+			imageView   = texture_image_view,
+			sampler     = texture_image_sampler,
 		}
 
-		vk.UpdateDescriptorSets(device, 1, &desc_write, 0, nil)
+		desc_write := []vk.WriteDescriptorSet {
+			{
+				sType = .WRITE_DESCRIPTOR_SET,
+				dstSet = set,
+				dstBinding = 0,
+				dstArrayElement = 0,
+				descriptorType = .UNIFORM_BUFFER,
+				descriptorCount = 1,
+				pBufferInfo = &buffer_info,
+			},
+			{
+				sType = .WRITE_DESCRIPTOR_SET,
+				dstSet = set,
+				dstBinding = 1,
+				dstArrayElement = 0,
+				descriptorType = .COMBINED_IMAGE_SAMPLER,
+				descriptorCount = 1,
+				pImageInfo = &image_info,
+			},
+		}
+
+		vk.UpdateDescriptorSets(device, u32(len(desc_write)), raw_data(desc_write), 0, nil)
 	}
 
 	return sets

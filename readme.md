@@ -139,6 +139,10 @@ Load an image file and upload its data to the GPU.
 
 Create the image view and sampler and enable anisotropic filtering.
 
+### 4.3: Combined image sampler [:rabbit2:](https://vulkan-tutorial.com/Texture_mapping/Combined_image_sampler)
+
+Update the descriptor sets, Vertex structure and shaders to use the loaded image as a texture for the displayed rectangle.
+
 
 
 [0]: https://vulkan-tutorial.com/
