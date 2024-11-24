@@ -122,6 +122,11 @@ Create a buffer whose memory is local to the graphics card and a staging buffer 
 
 Render a rectangle without duplicating vertices by using an index buffer.
 
+### 3.1: Descriptor layout and buffer [:rabbit2:](https://vulkan-tutorial.com/Uniform_buffers/Descriptor_layout_and_buffer)
+
+Update the vertex shader to apply a transformation and render it with a perspective camera.
+Also create the descriptor set layout, the buffers used to send data to the shader and update it each frame.
+
 
 
 [0]: https://vulkan-tutorial.com/

@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:slice"
 import "core:strings"
+import "core:time"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
@@ -112,7 +113,18 @@ main :: proc() {
 	}
 	fmt.println("Swapchain created.")
 
-	graphics_pipeline_layout, graphics_pipeline := create_graphics_pipeline(device, render_pass)
+	descriptor_set_layout := create_descriptor_set_layout(device)
+	defer {
+		vk.DestroyDescriptorSetLayout(device, descriptor_set_layout, nil)
+		fmt.println("Descriptor set layout destroyed.")
+	}
+	fmt.println("Descriptor set layout created.")
+
+	graphics_pipeline_layout, graphics_pipeline := create_graphics_pipeline(
+		device,
+		render_pass,
+		&descriptor_set_layout,
+	)
 	defer {
 		vk.DestroyPipelineLayout(device, graphics_pipeline_layout, nil)
 		vk.DestroyPipeline(device, graphics_pipeline, nil)
@@ -163,6 +175,16 @@ main :: proc() {
 	}
 	fmt.println("Index buffer created.")
 
+	ubo_buffers := create_uniform_buffers(device, pdevice.handle)
+	defer {
+		for b in ubo_buffers {
+			destroy_ubo_buffer(device, b)
+		}
+		fmt.println("UBO buffers destroyed.")
+	}
+	fmt.println("UBO buffers created.")
+
+	start := time.tick_now()
 	current_frame := 0
 	is_swapchain_dirty := false
 	fb_w, fb_h := glfw.GetFramebufferSize(window)
@@ -230,6 +252,8 @@ main :: proc() {
 			break
 		}
 
+		total_time_s := f32(time.duration_seconds(time.tick_since(start)))
+
 		// record and submit drawing commands
 		result = vk.ResetCommandBuffer(command_buffer, nil)
 		if result != .SUCCESS {
@@ -246,6 +270,8 @@ main :: proc() {
 			&vertex_buffer,
 			index_buffer,
 		)
+
+		update_uniform_buffer(ubo_buffers[current_frame], swapchain.config, total_time_s)
 
 		submit_info := vk.SubmitInfo {
 			sType                = .SUBMIT_INFO,
@@ -708,6 +734,7 @@ create_render_pass :: proc(device: vk.Device, config: SwapchainConfig) -> vk.Ren
 create_graphics_pipeline :: proc(
 	device: vk.Device,
 	render_pass: vk.RenderPass,
+	descriptor_set_layout: ^vk.DescriptorSetLayout,
 ) -> (
 	vk.PipelineLayout,
 	vk.Pipeline,
@@ -811,7 +838,9 @@ create_graphics_pipeline :: proc(
 
 	// layout
 	layout_create_info := vk.PipelineLayoutCreateInfo {
-		sType = .PIPELINE_LAYOUT_CREATE_INFO,
+		sType          = .PIPELINE_LAYOUT_CREATE_INFO,
+		setLayoutCount = 1,
+		pSetLayouts    = descriptor_set_layout,
 	}
 	layout: vk.PipelineLayout
 	result := vk.CreatePipelineLayout(device, &layout_create_info, nil, &layout)
