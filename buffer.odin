@@ -90,53 +90,12 @@ copy_buffer :: proc(
 	src, dst: vk.Buffer,
 	size: vk.DeviceSize,
 ) {
-	alloc_info := vk.CommandBufferAllocateInfo {
-		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
-		level              = .PRIMARY,
-		commandPool        = command_pool,
-		commandBufferCount = 1,
-	}
-
-	command_buffer: vk.CommandBuffer
-	result := vk.AllocateCommandBuffers(device, &alloc_info, &command_buffer)
-	if result != .SUCCESS {
-		panic("Failed to allocate command buffer for buffer copy.")
-	}
-
-	begin_info := vk.CommandBufferBeginInfo {
-		sType = .COMMAND_BUFFER_BEGIN_INFO,
-		flags = {.ONE_TIME_SUBMIT},
-	}
-	result = vk.BeginCommandBuffer(command_buffer, &begin_info)
-	if result != .SUCCESS {
-		panic("Failed to begin command buffer for buffer copy.")
-	}
+	command_buffer := begin_single_time_commands(device, command_pool)
 
 	copy_region := vk.BufferCopy {
 		size = size,
 	}
 	vk.CmdCopyBuffer(command_buffer, src, dst, 1, &copy_region)
 
-	result = vk.EndCommandBuffer(command_buffer)
-	if result != .SUCCESS {
-		panic("Failed to end command buffer for copy.")
-	}
-
-	submit_info := vk.SubmitInfo {
-		sType              = .SUBMIT_INFO,
-		commandBufferCount = 1,
-		pCommandBuffers    = &command_buffer,
-	}
-
-	result = vk.QueueSubmit(queue, 1, &submit_info, {})
-	if result != .SUCCESS {
-		panic("Failed to submit commands for buffer copy.")
-	}
-
-	result = vk.QueueWaitIdle(queue)
-	if result != .SUCCESS {
-		panic("Failed to wait for queue to be idle when copying buffer.")
-	}
-
-	vk.FreeCommandBuffers(device, command_pool, 1, &command_buffer)
+	end_single_time_commands(device, command_pool, command_buffer, queue)
 }

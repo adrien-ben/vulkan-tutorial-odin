@@ -131,6 +131,10 @@ Also create the descriptor set layout, the buffers used to send data to the shad
 
 Create the descriptor set pool and sets, update them to point at the proper buffers and bind them before rendering.
 
+### 4.1: Images [:rabbit2:](https://vulkan-tutorial.com/Texture_mapping/Images)
+
+Load an image file and upload its data to the GPU.
+
 
 
 [0]: https://vulkan-tutorial.com/

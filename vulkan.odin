@@ -198,6 +198,18 @@ main :: proc() {
 		ubo_buffers,
 	)
 
+	texture, texture_memory := create_texture_image(
+		device,
+		pdevice.handle,
+		command_pool,
+		graphics_queue,
+	)
+	defer {
+		destroy_image(device, texture, texture_memory)
+		fmt.println("Texture destroyed.")
+	}
+	fmt.println("Texture created.")
+
 	start := time.tick_now()
 	current_frame := 0
 	is_swapchain_dirty := false
