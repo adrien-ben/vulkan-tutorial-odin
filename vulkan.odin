@@ -184,6 +184,20 @@ main :: proc() {
 	}
 	fmt.println("UBO buffers created.")
 
+	descriptor_pool := create_descriptor_pool(device)
+	defer {
+		vk.DestroyDescriptorPool(device, descriptor_pool, nil)
+		fmt.println("Descriptor pool destroyed.")
+	}
+	fmt.println("Descriptor pool created.")
+
+	descriptor_sets := create_descriptor_sets(
+		device,
+		descriptor_pool,
+		descriptor_set_layout,
+		ubo_buffers,
+	)
+
 	start := time.tick_now()
 	current_frame := 0
 	is_swapchain_dirty := false
@@ -266,9 +280,11 @@ main :: proc() {
 			render_pass,
 			swapchain.framebuffers[image_index],
 			swapchain.config,
+			graphics_pipeline_layout,
 			graphics_pipeline,
 			&vertex_buffer,
 			index_buffer,
+			&descriptor_sets[current_frame],
 		)
 
 		update_uniform_buffer(ubo_buffers[current_frame], swapchain.config, total_time_s)
@@ -813,7 +829,7 @@ create_graphics_pipeline :: proc(
 		polygonMode             = .FILL,
 		lineWidth               = 1,
 		cullMode                = {.BACK},
-		frontFace               = .CLOCKWISE,
+		frontFace               = .COUNTER_CLOCKWISE,
 		depthBiasEnable         = false,
 	}
 
@@ -928,9 +944,11 @@ record_command_buffer :: proc(
 	render_pass: vk.RenderPass,
 	framebuffer: vk.Framebuffer,
 	config: SwapchainConfig,
+	pipeline_layout: vk.PipelineLayout,
 	pipeline: vk.Pipeline,
 	vertex_buffer: ^vk.Buffer,
 	index_buffer: vk.Buffer,
+	descriptor_set: ^vk.DescriptorSet,
 ) {
 	cmd_begin_info := vk.CommandBufferBeginInfo {
 		sType = .COMMAND_BUFFER_BEGIN_INFO,
@@ -958,6 +976,8 @@ record_command_buffer :: proc(
 	offset: vk.DeviceSize = 0
 	vk.CmdBindVertexBuffers(buffer, 0, 1, vertex_buffer, &offset)
 	vk.CmdBindIndexBuffer(buffer, index_buffer, 0, .UINT16)
+
+	vk.CmdBindDescriptorSets(buffer, .GRAPHICS, pipeline_layout, 0, 1, descriptor_set, 0, nil)
 
 	viewport := vk.Viewport {
 		width    = f32(config.extent.width),

@@ -127,6 +127,10 @@ Render a rectangle without duplicating vertices by using an index buffer.
 Update the vertex shader to apply a transformation and render it with a perspective camera.
 Also create the descriptor set layout, the buffers used to send data to the shader and update it each frame.
 
+### 3.2: Descriptor pool and sets [:rabbit2:](https://vulkan-tutorial.com/Uniform_buffers/Descriptor_pool_and_sets)
+
+Create the descriptor set pool and sets, update them to point at the proper buffers and bind them before rendering.
+
 
 
 [0]: https://vulkan-tutorial.com/

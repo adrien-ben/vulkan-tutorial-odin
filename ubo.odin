@@ -86,3 +86,72 @@ update_uniform_buffer :: proc(
 
 	intrinsics.mem_copy(buffer.mapped_ptr, &obj, size_of(UniformBufferObject))
 }
+
+create_descriptor_pool :: proc(device: vk.Device) -> vk.DescriptorPool {
+	pool_size := vk.DescriptorPoolSize {
+		type            = .UNIFORM_BUFFER,
+		descriptorCount = MAX_FRAMES_IN_FLIGHT,
+	}
+
+	create_info := vk.DescriptorPoolCreateInfo {
+		sType         = .DESCRIPTOR_POOL_CREATE_INFO,
+		poolSizeCount = 1,
+		pPoolSizes    = &pool_size,
+		maxSets       = MAX_FRAMES_IN_FLIGHT,
+	}
+
+	pool: vk.DescriptorPool
+	result := vk.CreateDescriptorPool(device, &create_info, nil, &pool)
+	if result != .SUCCESS {
+		panic("Failed to create descriptor pool.")
+	}
+	return pool
+}
+
+create_descriptor_sets :: proc(
+	device: vk.Device,
+	pool: vk.DescriptorPool,
+	layout: vk.DescriptorSetLayout,
+	ubo_buffers: [MAX_FRAMES_IN_FLIGHT]UboBuffer,
+) -> [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet {
+
+	layouts: [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSetLayout
+	for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+		layouts[i] = layout
+	}
+
+	alloc_info := vk.DescriptorSetAllocateInfo {
+		sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
+		descriptorPool     = pool,
+		descriptorSetCount = MAX_FRAMES_IN_FLIGHT,
+		pSetLayouts        = raw_data(layouts[:]),
+	}
+
+	sets: [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet
+	result := vk.AllocateDescriptorSets(device, &alloc_info, raw_data(sets[:]))
+	if result != .SUCCESS {
+		panic("Failed to allocate descriptor sets.")
+	}
+
+	for set, index in sets {
+		buffer_info := vk.DescriptorBufferInfo {
+			buffer = ubo_buffers[index].buffer,
+			offset = 0,
+			range  = size_of(UniformBufferObject),
+		}
+
+		desc_write := vk.WriteDescriptorSet {
+			sType           = .WRITE_DESCRIPTOR_SET,
+			dstSet          = set,
+			dstBinding      = 0,
+			dstArrayElement = 0,
+			descriptorType  = .UNIFORM_BUFFER,
+			descriptorCount = 1,
+			pBufferInfo     = &buffer_info,
+		}
+
+		vk.UpdateDescriptorSets(device, 1, &desc_write, 0, nil)
+	}
+
+	return sets
+}
