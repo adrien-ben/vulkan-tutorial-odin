@@ -60,6 +60,7 @@ create_texture_image :: proc(
 		.UNDEFINED,
 		.TRANSFER_DST_OPTIMAL,
 		vk_image,
+		.R8G8B8A8_SRGB,
 	)
 
 	copy_buffer_to_image(device, command_pool, queue, buffer, vk_image, img_width, img_height)
@@ -71,6 +72,7 @@ create_texture_image :: proc(
 		.TRANSFER_DST_OPTIMAL,
 		.SHADER_READ_ONLY_OPTIMAL,
 		vk_image,
+		.R8G8B8A8_SRGB,
 	)
 
 	destroy_buffer(device, buffer, memory)
@@ -149,8 +151,17 @@ transition_image_layout :: proc(
 	queue: vk.Queue,
 	old, new: vk.ImageLayout,
 	image: vk.Image,
+	format: vk.Format,
 ) {
 	command_buffer := begin_single_time_commands(device, command_pool)
+
+	aspeck_mask: vk.ImageAspectFlags = {.COLOR}
+	if new == .DEPTH_STENCIL_ATTACHMENT_OPTIMAL {
+		aspeck_mask = {.DEPTH}
+		if has_stencil(format) {
+			aspeck_mask |= {.STENCIL}
+		}
+	}
 
 	barrier := vk.ImageMemoryBarrier {
 		sType = .IMAGE_MEMORY_BARRIER,
@@ -160,7 +171,7 @@ transition_image_layout :: proc(
 		dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
 		image = image,
 		subresourceRange = {
-			aspectMask = {.COLOR},
+			aspectMask = aspeck_mask,
 			baseMipLevel = 0,
 			levelCount = 1,
 			baseArrayLayer = 0,
@@ -181,6 +192,12 @@ transition_image_layout :: proc(
 
 		srcStage = {.TRANSFER}
 		dstStage = {.FRAGMENT_SHADER}
+	} else if old == .UNDEFINED && new == .DEPTH_STENCIL_ATTACHMENT_OPTIMAL {
+		barrier.srcAccessMask = {}
+		barrier.dstAccessMask = {.DEPTH_STENCIL_ATTACHMENT_READ, .DEPTH_STENCIL_ATTACHMENT_WRITE}
+
+		srcStage = {.TOP_OF_PIPE}
+		dstStage = {.EARLY_FRAGMENT_TESTS}
 	} else {
 		panic("Unsupported image layout transition")
 	}
@@ -211,16 +228,21 @@ copy_buffer_to_image :: proc(
 }
 
 create_texture_image_view :: proc(device: vk.Device, image: vk.Image) -> vk.ImageView {
-	return create_image_view(device, image, .R8G8B8A8_SRGB)
+	return create_image_view(device, image, .R8G8B8A8_SRGB, {.COLOR})
 }
 
-create_image_view :: proc(device: vk.Device, image: vk.Image, format: vk.Format) -> vk.ImageView {
+create_image_view :: proc(
+	device: vk.Device,
+	image: vk.Image,
+	format: vk.Format,
+	aspect_mask: vk.ImageAspectFlags,
+) -> vk.ImageView {
 	create_info := vk.ImageViewCreateInfo {
 		sType = .IMAGE_VIEW_CREATE_INFO,
 		image = image,
 		viewType = .D2,
 		format = format,
-		subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
+		subresourceRange = {aspectMask = aspect_mask, levelCount = 1, layerCount = 1},
 	}
 
 	view: vk.ImageView
@@ -257,4 +279,90 @@ create_texture_sampler :: proc(device: vk.Device, anisotropy: f32) -> vk.Sampler
 		panic("Failed to create texture sampler.")
 	}
 	return sampler
+}
+
+DepthBuffer :: struct {
+	image:  vk.Image,
+	memory: vk.DeviceMemory,
+	view:   vk.ImageView,
+	format: vk.Format,
+}
+
+destroy_depth_buffer :: proc(device: vk.Device, buffer: DepthBuffer) {
+	destroy_image(device, buffer.image, buffer.memory)
+	vk.DestroyImageView(device, buffer.view, nil)
+}
+
+create_depth_buffer :: proc(
+	device: vk.Device,
+	pdevice: vk.PhysicalDevice,
+	sc_config: SwapchainConfig,
+	command_pool: vk.CommandPool,
+	queue: vk.Queue,
+) -> DepthBuffer {
+	format := find_depth_format(pdevice)
+
+	image, memory := create_image(
+		device,
+		pdevice,
+		int(sc_config.extent.width),
+		int(sc_config.extent.height),
+		format,
+		.OPTIMAL,
+		{.DEPTH_STENCIL_ATTACHMENT},
+		{.DEVICE_LOCAL},
+	)
+
+	view := create_image_view(device, image, format, {.DEPTH})
+
+	transition_image_layout(
+		device,
+		command_pool,
+		queue,
+		.UNDEFINED,
+		.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+		image,
+		format,
+	)
+
+	return DepthBuffer{image = image, memory = memory, view = view, format = format}
+}
+
+find_depth_format :: proc(pdevice: vk.PhysicalDevice) -> vk.Format {
+	candidates := []vk.Format{.D32_SFLOAT, .D32_SFLOAT_S8_UINT, .D24_UNORM_S8_UINT}
+	format, found := find_supported_format(
+		pdevice,
+		candidates,
+		.OPTIMAL,
+		{.DEPTH_STENCIL_ATTACHMENT},
+	)
+	if !found {
+		panic("Failed to find a supported format for depth buffer.")
+	}
+	return format
+}
+
+find_supported_format :: proc(
+	pdevice: vk.PhysicalDevice,
+	candidates: []vk.Format,
+	tiling: vk.ImageTiling,
+	features: vk.FormatFeatureFlags,
+) -> (
+	vk.Format,
+	bool,
+) {
+	for f in candidates {
+		properties: vk.FormatProperties
+		vk.GetPhysicalDeviceFormatProperties(pdevice, f, &properties)
+
+		if (tiling == .LINEAR && (properties.linearTilingFeatures & features) == features) ||
+		   (tiling == .OPTIMAL && (properties.optimalTilingFeatures & features) == features) {
+			return f, true
+		}
+	}
+	return nil, false
+}
+
+has_stencil :: proc(format: vk.Format) -> bool {
+	return format == .D32_SFLOAT_S8_UINT || format == .D24_UNORM_S8_UINT
 }

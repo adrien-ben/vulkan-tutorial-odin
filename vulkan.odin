@@ -93,20 +93,50 @@ main :: proc() {
 	present_queue: vk.Queue
 	vk.GetDeviceQueue(device, u32(pdevice.queue_family_indices.present_family), 0, &present_queue)
 
+	command_pool := create_command_pool(device, pdevice.queue_family_indices.graphics_family)
+	defer {
+		vk.DestroyCommandPool(device, command_pool, nil)
+		fmt.println("Vulkan command pool destroyed.")
+	}
+	fmt.println("Vulkan command pool created.")
+
+	command_buffers := allocate_command_buffers(device, command_pool)
+	fmt.println("Vulkan command buffer allocated.")
+
 	swapchain_support := query_swapchain_support(pdevice.handle, surface)
 	defer {
 		delete_swapchain_support_details(swapchain_support)
 	}
 	swapchain_config := select_swapchain_config(swapchain_support, window)
 
-	render_pass := create_render_pass(device, swapchain_config)
+	depth_buffer := create_depth_buffer(
+		device,
+		pdevice.handle,
+		swapchain_config,
+		command_pool,
+		graphics_queue,
+	)
+	defer {
+		destroy_depth_buffer(device, depth_buffer)
+		fmt.println("Depth buffer destroyed.")
+	}
+	fmt.println("Depth buffer created.")
+
+	render_pass := create_render_pass(device, swapchain_config, depth_buffer.format)
 	defer {
 		vk.DestroyRenderPass(device, render_pass, nil)
 		fmt.println("Vulkan render pass destroyed.")
 	}
 	fmt.println("Vulkan render pass created.")
 
-	swapchain := create_swapchain(device, pdevice, surface, render_pass, swapchain_config)
+	swapchain := create_swapchain(
+		device,
+		pdevice,
+		surface,
+		depth_buffer,
+		render_pass,
+		swapchain_config,
+	)
 	defer {
 		destroy_swapchain(device, swapchain)
 		fmt.println("Swapchain destroyed.")
@@ -131,16 +161,6 @@ main :: proc() {
 		fmt.println("Vulkan graphics pipeline and layout destroyed.")
 	}
 	fmt.println("Vulkan graphics pipeline and layout created.")
-
-	command_pool := create_command_pool(device, pdevice.queue_family_indices.graphics_family)
-	defer {
-		vk.DestroyCommandPool(device, command_pool, nil)
-		fmt.println("Vulkan command pool destroyed.")
-	}
-	fmt.println("Vulkan command pool created.")
-
-	command_buffers := allocate_command_buffers(device, command_pool)
-	fmt.println("Vulkan command buffer allocated.")
 
 	sync_objs := create_sync_objects(device)
 	defer {
@@ -251,12 +271,15 @@ main :: proc() {
 
 		result: vk.Result
 		if is_swapchain_dirty {
-			swapchain = recreate_swapchain(
+			depth_buffer, swapchain = recreate_swapchain(
 				device,
 				pdevice,
 				window,
 				surface,
+				depth_buffer,
 				render_pass,
+				command_pool,
+				graphics_queue,
 				swapchain,
 			)
 			fmt.println("Swapchain recreated.")
@@ -741,16 +764,34 @@ create_logical_device :: proc(pdevice: PhysicalDevice) -> vk.Device {
 	return device
 }
 
-create_render_pass :: proc(device: vk.Device, config: SwapchainConfig) -> vk.RenderPass {
-	color_attachment := vk.AttachmentDescription {
-		format         = config.format.format,
-		samples        = {._1},
-		loadOp         = .CLEAR,
-		storeOp        = .STORE,
-		stencilLoadOp  = .DONT_CARE,
-		stencilStoreOp = .DONT_CARE,
-		initialLayout  = .UNDEFINED,
-		finalLayout    = .PRESENT_SRC_KHR,
+create_render_pass :: proc(
+	device: vk.Device,
+	config: SwapchainConfig,
+	depth_format: vk.Format,
+) -> vk.RenderPass {
+	attachments := []vk.AttachmentDescription {
+		// color
+		{
+			format = config.format.format,
+			samples = {._1},
+			loadOp = .CLEAR,
+			storeOp = .STORE,
+			stencilLoadOp = .DONT_CARE,
+			stencilStoreOp = .DONT_CARE,
+			initialLayout = .UNDEFINED,
+			finalLayout = .PRESENT_SRC_KHR,
+		},
+		// depth
+		{
+			format = depth_format,
+			samples = {._1},
+			loadOp = .CLEAR,
+			storeOp = .DONT_CARE,
+			stencilLoadOp = .DONT_CARE,
+			stencilStoreOp = .DONT_CARE,
+			initialLayout = .UNDEFINED,
+			finalLayout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+		},
 	}
 
 	color_attachment_ref := vk.AttachmentReference {
@@ -758,25 +799,31 @@ create_render_pass :: proc(device: vk.Device, config: SwapchainConfig) -> vk.Ren
 		layout     = .COLOR_ATTACHMENT_OPTIMAL,
 	}
 
+	depth_attachment_ref := vk.AttachmentReference {
+		attachment = 1,
+		layout     = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+	}
+
 	subpass := vk.SubpassDescription {
-		pipelineBindPoint    = .GRAPHICS,
-		colorAttachmentCount = 1,
-		pColorAttachments    = &color_attachment_ref,
+		pipelineBindPoint       = .GRAPHICS,
+		colorAttachmentCount    = 1,
+		pColorAttachments       = &color_attachment_ref,
+		pDepthStencilAttachment = &depth_attachment_ref,
 	}
 
 	dependency := vk.SubpassDependency {
 		srcSubpass    = vk.SUBPASS_EXTERNAL,
 		dstSubpass    = 0,
-		srcStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
+		srcStageMask  = {.COLOR_ATTACHMENT_OUTPUT, .EARLY_FRAGMENT_TESTS},
 		srcAccessMask = nil,
-		dstStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
-		dstAccessMask = {.COLOR_ATTACHMENT_WRITE},
+		dstStageMask  = {.COLOR_ATTACHMENT_OUTPUT, .EARLY_FRAGMENT_TESTS},
+		dstAccessMask = {.COLOR_ATTACHMENT_WRITE, .DEPTH_STENCIL_ATTACHMENT_WRITE},
 	}
 
 	create_info := vk.RenderPassCreateInfo {
 		sType           = .RENDER_PASS_CREATE_INFO,
-		attachmentCount = 1,
-		pAttachments    = &color_attachment,
+		attachmentCount = u32(len(attachments)),
+		pAttachments    = raw_data(attachments),
 		subpassCount    = 1,
 		pSubpasses      = &subpass,
 		dependencyCount = 1,
@@ -896,6 +943,14 @@ create_graphics_pipeline :: proc(
 		pAttachments    = &color_blend_attachment,
 	}
 
+	// depth stencil
+	depth_stencil_state := vk.PipelineDepthStencilStateCreateInfo {
+		sType            = .PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+		depthTestEnable  = true,
+		depthWriteEnable = true,
+		depthCompareOp   = .LESS,
+	}
+
 	// layout
 	layout_create_info := vk.PipelineLayoutCreateInfo {
 		sType          = .PIPELINE_LAYOUT_CREATE_INFO,
@@ -919,6 +974,7 @@ create_graphics_pipeline :: proc(
 		pRasterizationState = &raster_state,
 		pMultisampleState   = &multisampling,
 		pColorBlendState    = &color_blend_state,
+		pDepthStencilState  = &depth_stencil_state,
 		pDynamicState       = &dynamic_state,
 		layout              = layout,
 		renderPass          = render_pass,
@@ -1002,16 +1058,17 @@ record_command_buffer :: proc(
 		panic("Failed to begin command buffer.")
 	}
 
-	clear_color := vk.ClearValue {
-		color = vk.ClearColorValue{float32 = {0, 0, 0, 1}},
+	clear_values := []vk.ClearValue {
+		{color = vk.ClearColorValue{float32 = {0, 0, 0, 1}}},
+		{depthStencil = vk.ClearDepthStencilValue{depth = 1}},
 	}
 	render_pass_begin_info := vk.RenderPassBeginInfo {
 		sType = .RENDER_PASS_BEGIN_INFO,
 		renderPass = render_pass,
 		framebuffer = framebuffer,
 		renderArea = {offset = {}, extent = config.extent},
-		clearValueCount = 1,
-		pClearValues = &clear_color,
+		clearValueCount = u32(len(clear_values)),
+		pClearValues = raw_data(clear_values),
 	}
 
 	vk.CmdBeginRenderPass(buffer, &render_pass_begin_info, .INLINE)

@@ -153,6 +153,7 @@ create_swapchain :: proc(
 	device: vk.Device,
 	pdevice: PhysicalDevice,
 	surface: vk.SurfaceKHR,
+	depth_buffer: DepthBuffer,
 	render_pass: vk.RenderPass,
 	config: SwapchainConfig,
 ) -> Swapchain {
@@ -204,6 +205,7 @@ create_swapchain :: proc(
 		device,
 		config,
 		swapchain.views,
+		depth_buffer,
 		render_pass,
 	)
 	fmt.println("Vulkan swapchain framebuffers created.")
@@ -216,14 +218,21 @@ recreate_swapchain :: proc(
 	pdevice: PhysicalDevice,
 	window: glfw.WindowHandle,
 	surface: vk.SurfaceKHR,
+	depth_buffer: DepthBuffer,
 	render_pass: vk.RenderPass,
+	command_pool: vk.CommandPool,
+	queue: vk.Queue,
 	current: Swapchain,
-) -> Swapchain {
+) -> (
+	DepthBuffer,
+	Swapchain,
+) {
 	result := vk.DeviceWaitIdle(device)
 	if result != .SUCCESS {
 		panic("Failed to wait for device to be idle.")
 	}
 
+	destroy_depth_buffer(device, depth_buffer)
 	destroy_swapchain(device, current)
 
 	swapchain_support := query_swapchain_support(pdevice.handle, surface)
@@ -232,7 +241,23 @@ recreate_swapchain :: proc(
 	}
 	swapchain_config := select_swapchain_config(swapchain_support, window)
 
-	return create_swapchain(device, pdevice, surface, render_pass, swapchain_config)
+	depth_buffer := create_depth_buffer(
+		device,
+		pdevice.handle,
+		swapchain_config,
+		command_pool,
+		queue,
+	)
+	swapchain := create_swapchain(
+		device,
+		pdevice,
+		surface,
+		depth_buffer,
+		render_pass,
+		swapchain_config,
+	)
+
+	return depth_buffer, swapchain
 }
 
 get_swapchain_images :: proc(device: vk.Device, swapchain: vk.SwapchainKHR) -> []vk.Image {
@@ -256,7 +281,7 @@ create_swapchain_image_views :: proc(
 ) -> []vk.ImageView {
 	views := make([]vk.ImageView, len(imgs))
 	for img, index in imgs {
-		views[index] = create_image_view(device, img, config.format.format)
+		views[index] = create_image_view(device, img, config.format.format, {.COLOR})
 	}
 	return views
 }
@@ -265,15 +290,17 @@ create_swapchain_framebuffers :: proc(
 	device: vk.Device,
 	config: SwapchainConfig,
 	views: []vk.ImageView,
+	depth_buffer: DepthBuffer,
 	render_pass: vk.RenderPass,
 ) -> []vk.Framebuffer {
 	framebuffers := make([]vk.Framebuffer, len(views))
-	for &view, index in views {
+	for view, index in views {
+		attachments := []vk.ImageView{view, depth_buffer.view}
 		create_info := vk.FramebufferCreateInfo {
 			sType           = .FRAMEBUFFER_CREATE_INFO,
 			renderPass      = render_pass,
-			attachmentCount = 1,
-			pAttachments    = &view,
+			attachmentCount = u32(len(attachments)),
+			pAttachments    = raw_data(attachments),
 			width           = config.extent.width,
 			height          = config.extent.height,
 			layers          = 1,

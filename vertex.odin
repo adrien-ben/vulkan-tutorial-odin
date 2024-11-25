@@ -6,18 +6,22 @@ import vk "vendor:vulkan"
 Vec2 :: distinct [2]f32
 Vec3 :: distinct [3]f32
 Vertex :: struct {
-	pos:        Vec2,
+	pos:        Vec3,
 	color:      Vec3,
 	tex_coords: Vec2,
 }
 
 VERTICES := [?]Vertex {
-	{pos = {-0.5, -0.5}, color = {1, 0, 0}, tex_coords = {1, 0}},
-	{pos = {0.5, -0.5}, color = {0, 1, 0}, tex_coords = {0, 0}},
-	{pos = {0.5, 0.5}, color = {0, 0, 1}, tex_coords = {0, 1}},
-	{pos = {-0.5, 0.5}, color = {1, 1, 1}, tex_coords = {1, 1}},
+	{pos = {-0.5, -0.5, 0.2}, color = {1, 0, 0}, tex_coords = {1, 0}},
+	{pos = {0.5, -0.5, 0.2}, color = {0, 1, 0}, tex_coords = {0, 0}},
+	{pos = {0.5, 0.5, 0.2}, color = {0, 0, 1}, tex_coords = {0, 1}},
+	{pos = {-0.5, 0.5, 0.2}, color = {1, 1, 1}, tex_coords = {1, 1}},
+	{pos = {-0.5, -0.5, -0.2}, color = {1, 0, 0}, tex_coords = {1, 0}},
+	{pos = {0.5, -0.5, -0.2}, color = {0, 1, 0}, tex_coords = {0, 0}},
+	{pos = {0.5, 0.5, -0.2}, color = {0, 0, 1}, tex_coords = {0, 1}},
+	{pos = {-0.5, 0.5, -0.2}, color = {1, 1, 1}, tex_coords = {1, 1}},
 }
-INDICES := [?]u16{0, 1, 2, 2, 3, 0}
+INDICES := [?]u16{0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4}
 
 get_vertex_binding_description :: proc() -> vk.VertexInputBindingDescription {
 	return vk.VertexInputBindingDescription {
@@ -29,7 +33,12 @@ get_vertex_binding_description :: proc() -> vk.VertexInputBindingDescription {
 
 get_vertex_attribute_descriptions :: proc() -> [3]vk.VertexInputAttributeDescription {
 	return [3]vk.VertexInputAttributeDescription {
-		{binding = 0, location = 0, format = .R32G32_SFLOAT, offset = u32(offset_of(Vertex, pos))},
+		{
+			binding = 0,
+			location = 0,
+			format = .R32G32B32_SFLOAT,
+			offset = u32(offset_of(Vertex, pos)),
+		},
 		{
 			binding = 0,
 			location = 1,

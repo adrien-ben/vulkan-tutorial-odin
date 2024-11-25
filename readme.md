@@ -143,6 +143,10 @@ Create the image view and sampler and enable anisotropic filtering.
 
 Update the descriptor sets, Vertex structure and shaders to use the loaded image as a texture for the displayed rectangle.
 
+### 5: Depth buffering [:rabbit2:](https://vulkan-tutorial.com/Depth_buffering)
+
+Render overlapping geometry, create a depth texture and set up depth testing.
+
 
 
 [0]: https://vulkan-tutorial.com/

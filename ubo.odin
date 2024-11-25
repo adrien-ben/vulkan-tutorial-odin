@@ -84,15 +84,25 @@ update_uniform_buffer :: proc(
 
 	obj.model = linalg.matrix4_rotate(math.to_radians(f32(90)) * total_time_s, [3]f32{0, 0, 1})
 	obj.view = linalg.matrix4_look_at([3]f32{2, 2, 2}, [3]f32{0, 0, 0}, [3]f32{0, 0, 1})
-	obj.proj = linalg.matrix4_perspective(
+	obj.proj = perspective(
 		math.to_radians(f32(45)),
 		f32(swapchain_config.extent.width) / f32(swapchain_config.extent.height),
 		0.1,
 		10,
 	)
-	obj.proj[1][1] *= -1
 
 	intrinsics.mem_copy(buffer.mapped_ptr, &obj, size_of(UniformBufferObject))
+}
+
+perspective :: proc(fovy, aspect, near, far: f32) -> (m: Mat4) {
+	f := 1 / math.tan(fovy * 0.5)
+	m[0, 0] = f / aspect
+	m[1, 1] = -f
+	m[2, 2] = -far / (far - near)
+	m[3, 2] = -1
+	m[2, 3] = -(far * near) / (far - near)
+
+	return
 }
 
 create_descriptor_pool :: proc(device: vk.Device) -> vk.DescriptorPool {
