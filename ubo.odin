@@ -131,8 +131,7 @@ create_descriptor_sets :: proc(
 	pool: vk.DescriptorPool,
 	layout: vk.DescriptorSetLayout,
 	ubo_buffers: [MAX_FRAMES_IN_FLIGHT]UboBuffer,
-	texture_image_view: vk.ImageView,
-	texture_image_sampler: vk.Sampler,
+	model: Model,
 ) -> [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet {
 
 	layouts: [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSetLayout
@@ -162,8 +161,8 @@ create_descriptor_sets :: proc(
 
 		image_info := vk.DescriptorImageInfo {
 			imageLayout = .SHADER_READ_ONLY_OPTIMAL,
-			imageView   = texture_image_view,
-			sampler     = texture_image_sampler,
+			imageView   = model.texture_view,
+			sampler     = model.texture_sampler,
 		}
 
 		desc_write := []vk.WriteDescriptorSet {

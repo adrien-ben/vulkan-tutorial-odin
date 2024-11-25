@@ -11,11 +11,12 @@ create_texture_image :: proc(
 	pdevice: vk.PhysicalDevice,
 	command_pool: vk.CommandPool,
 	queue: vk.Queue,
+	path: string,
 ) -> (
 	vk.Image,
 	vk.DeviceMemory,
 ) {
-	image, err := img.load("./assets/texture.png", {.alpha_add_if_missing})
+	image, err := img.load(path, {.alpha_add_if_missing})
 	if err != nil {
 		panic("Failed to open image file.")
 	}

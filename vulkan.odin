@@ -171,30 +171,6 @@ main :: proc() {
 	}
 	fmt.println("Vulkan sync objects created.")
 
-	vertex_buffer, vertex_buffer_memory := create_vertex_buffer(
-		device,
-		pdevice.handle,
-		command_pool,
-		graphics_queue,
-	)
-	defer {
-		destroy_buffer(device, vertex_buffer, vertex_buffer_memory)
-		fmt.println("Vertex buffer destroyed.")
-	}
-	fmt.println("Vertex buffer created.")
-
-	index_buffer, index_buffer_memory := create_index_buffer(
-		device,
-		pdevice.handle,
-		command_pool,
-		graphics_queue,
-	)
-	defer {
-		destroy_buffer(device, index_buffer, index_buffer_memory)
-		fmt.println("Index buffer destroyed.")
-	}
-	fmt.println("Index buffer created.")
-
 	ubo_buffers := create_uniform_buffers(device, pdevice.handle)
 	defer {
 		for b in ubo_buffers {
@@ -204,34 +180,12 @@ main :: proc() {
 	}
 	fmt.println("UBO buffers created.")
 
-	texture, texture_memory := create_texture_image(
-		device,
-		pdevice.handle,
-		command_pool,
-		graphics_queue,
-	)
+	model := load_model(device, pdevice, command_pool, graphics_queue)
 	defer {
-		destroy_image(device, texture, texture_memory)
-		fmt.println("Texture destroyed.")
+		destroy_model(device, model)
+		fmt.println("Model destroyed.")
 	}
-	fmt.println("Texture created.")
-
-	texture_view := create_texture_image_view(device, texture)
-	defer {
-		vk.DestroyImageView(device, texture_view, nil)
-		fmt.println("Texture view destroyed.")
-	}
-	fmt.println("Texture view created.")
-
-	texture_sampler := create_texture_sampler(
-		device,
-		pdevice.properties.limits.maxSamplerAnisotropy,
-	)
-	defer {
-		vk.DestroySampler(device, texture_sampler, nil)
-		fmt.println("Texture sampler destroyed.")
-	}
-	fmt.println("Texture sampler created.")
+	fmt.println("Model created.")
 
 	descriptor_pool := create_descriptor_pool(device)
 	defer {
@@ -245,8 +199,7 @@ main :: proc() {
 		descriptor_pool,
 		descriptor_set_layout,
 		ubo_buffers,
-		texture_view,
-		texture_sampler,
+		model,
 	)
 
 	start := time.tick_now()
@@ -336,8 +289,7 @@ main :: proc() {
 			swapchain.config,
 			graphics_pipeline_layout,
 			graphics_pipeline,
-			&vertex_buffer,
-			index_buffer,
+			model,
 			&descriptor_sets[current_frame],
 		)
 
@@ -919,7 +871,7 @@ create_graphics_pipeline :: proc(
 		rasterizerDiscardEnable = false,
 		polygonMode             = .FILL,
 		lineWidth               = 1,
-		cullMode                = {.BACK},
+		cullMode                = {},
 		frontFace               = .COUNTER_CLOCKWISE,
 		depthBiasEnable         = false,
 	}
@@ -1046,8 +998,7 @@ record_command_buffer :: proc(
 	config: SwapchainConfig,
 	pipeline_layout: vk.PipelineLayout,
 	pipeline: vk.Pipeline,
-	vertex_buffer: ^vk.Buffer,
-	index_buffer: vk.Buffer,
+	model: Model,
 	descriptor_set: ^vk.DescriptorSet,
 ) {
 	cmd_begin_info := vk.CommandBufferBeginInfo {
@@ -1074,9 +1025,12 @@ record_command_buffer :: proc(
 	vk.CmdBeginRenderPass(buffer, &render_pass_begin_info, .INLINE)
 	vk.CmdBindPipeline(buffer, .GRAPHICS, pipeline)
 
+	vertex_buffer := model.vertex_buffer
 	offset: vk.DeviceSize = 0
-	vk.CmdBindVertexBuffers(buffer, 0, 1, vertex_buffer, &offset)
-	vk.CmdBindIndexBuffer(buffer, index_buffer, 0, .UINT16)
+	vk.CmdBindVertexBuffers(buffer, 0, 1, &vertex_buffer, &offset)
+
+	index_buffer := model.index_buffer
+	vk.CmdBindIndexBuffer(buffer, index_buffer, 0, .UINT32)
 
 	vk.CmdBindDescriptorSets(buffer, .GRAPHICS, pipeline_layout, 0, 1, descriptor_set, 0, nil)
 
@@ -1091,8 +1045,7 @@ record_command_buffer :: proc(
 		extent = config.extent,
 	}
 	vk.CmdSetScissor(buffer, 0, 1, &scissor)
-
-	vk.CmdDrawIndexed(buffer, u32(len(INDICES)), 1, 0, 0, 0)
+	vk.CmdDrawIndexed(buffer, u32(model.index_count), 1, 0, 0, 0)
 
 	vk.CmdEndRenderPass(buffer)
 

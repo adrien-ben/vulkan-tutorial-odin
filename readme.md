@@ -156,6 +156,14 @@ It overlaps a little with the next chapter though as it already merges duplicate
 
 > This is a very simple loader, it might not work for other more complicated loader. Also it only outputs positions and texture coordinate since we won't use normals.
 
+### 6: Loading models [:rabbit2:](https://vulkan-tutorial.com/Loading_models)
+
+Load an .obj model and render it.
+
+> Since we don't use the vertex color anymore I just remove them altogether.
+
+> The tutorial already mentions it but the model doesn't play nicely with backface culling so I disabled it.
+
 
 
 [0]: https://vulkan-tutorial.com/
