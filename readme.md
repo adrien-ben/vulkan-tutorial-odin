@@ -147,6 +147,15 @@ Update the descriptor sets, Vertex structure and shaders to use the loaded image
 
 Render overlapping geometry, create a depth texture and set up depth testing.
 
+### 6.0: Obj file loader
+
+**This is not part of the original Vulkan tutorial!**
+
+Implement a simple (and most likely incomplete) loader for .obj files in preparation for the next chapter.
+It overlaps a little with the next chapter though as it already merges duplicate vertices and invert the texture coordinates y axis.
+
+> This is a very simple loader, it might not work for other more complicated loader. Also it only outputs positions and texture coordinate since we won't use normals.
+
 
 
 [0]: https://vulkan-tutorial.com/
