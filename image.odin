@@ -13,19 +13,11 @@ TextureImage :: struct {
 	width, height, levels: int,
 }
 
-destroy_texture_image :: proc(device: vk.Device, using texture_image: TextureImage) {
-	destroy_image(device, image, memory)
+destroy_texture_image :: proc(ctx: ^VkContext, using texture_image: TextureImage) {
+	destroy_image(ctx, image, memory)
 }
 
-create_texture_image :: proc(
-	device: vk.Device,
-	pdevice: vk.PhysicalDevice,
-	command_pool: vk.CommandPool,
-	queue: vk.Queue,
-	path: string,
-) -> (
-	texture_img: TextureImage,
-) {
+create_texture_image :: proc(using ctx: ^VkContext, path: string) -> (texture_img: TextureImage) {
 	image, err := img.load(path, {.alpha_add_if_missing})
 	if err != nil {
 		panic("Failed to open image file.")
@@ -38,13 +30,7 @@ create_texture_image :: proc(
 		math.floor(math.log2(f32(max(texture_img.width, texture_img.height)))),
 	)
 
-	buffer, memory := create_buffer(
-		device,
-		pdevice,
-		size,
-		{.TRANSFER_SRC},
-		{.HOST_VISIBLE, .HOST_COHERENT},
-	)
+	buffer, memory := create_buffer(ctx, size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT})
 
 	data: rawptr
 	result := vk.MapMemory(device, memory, 0, size, {}, &data)
@@ -58,8 +44,7 @@ create_texture_image :: proc(
 
 	texture_img.format = .R8G8B8A8_SRGB
 	texture_img.image, texture_img.memory = create_image(
-		device,
-		pdevice,
+		ctx,
 		texture_img.width,
 		texture_img.height,
 		texture_img.format,
@@ -71,9 +56,7 @@ create_texture_image :: proc(
 	)
 
 	transition_image_layout(
-		device,
-		command_pool,
-		queue,
+		ctx,
 		.UNDEFINED,
 		.TRANSFER_DST_OPTIMAL,
 		texture_img.image,
@@ -81,31 +64,22 @@ create_texture_image :: proc(
 		texture_img.levels,
 	)
 
-	copy_buffer_to_image(
-		device,
-		command_pool,
-		queue,
-		buffer,
-		texture_img.image,
-		texture_img.width,
-		texture_img.height,
-	)
+	copy_buffer_to_image(ctx, buffer, texture_img.image, texture_img.width, texture_img.height)
 
-	generate_mipmaps(device, pdevice, command_pool, queue, texture_img)
+	generate_mipmaps(ctx, texture_img)
 
-	destroy_buffer(device, buffer, memory)
+	destroy_buffer(ctx, buffer, memory)
 
 	return
 }
 
-destroy_image :: proc(device: vk.Device, image: vk.Image, memory: vk.DeviceMemory) {
+destroy_image :: proc(using ctx: ^VkContext, image: vk.Image, memory: vk.DeviceMemory) {
 	vk.DestroyImage(device, image, nil)
 	vk.FreeMemory(device, memory, nil)
 }
 
 create_image :: proc(
-	device: vk.Device,
-	pdevice: vk.PhysicalDevice,
+	using ctx: ^VkContext,
 	width, height: int,
 	format: vk.Format,
 	tiling: vk.ImageTiling,
@@ -114,8 +88,8 @@ create_image :: proc(
 	mip_levels: int,
 	sample_count: vk.SampleCountFlag,
 ) -> (
-	vk.Image,
-	vk.DeviceMemory,
+	image: vk.Image,
+	image_mem: vk.DeviceMemory,
 ) {
 	create_info := vk.ImageCreateInfo {
 		sType = .IMAGE_CREATE_INFO,
@@ -131,7 +105,6 @@ create_image :: proc(
 		samples = {sample_count},
 	}
 
-	image: vk.Image
 	result := vk.CreateImage(device, &create_info, nil, &image)
 	if result != .SUCCESS {
 		panic("Failed to create Vulkan image.")
@@ -140,7 +113,7 @@ create_image :: proc(
 	requirements: vk.MemoryRequirements
 	vk.GetImageMemoryRequirements(device, image, &requirements)
 
-	mem_type, found := find_memory_type(pdevice, requirements.memoryTypeBits, properties)
+	mem_type, found := find_memory_type(ctx, requirements.memoryTypeBits, properties)
 	if !found {
 		panic("Failed to find compatible memory type for image memory.")
 	}
@@ -151,7 +124,6 @@ create_image :: proc(
 		memoryTypeIndex = mem_type,
 	}
 
-	image_mem: vk.DeviceMemory
 	result = vk.AllocateMemory(device, &alloc_info, nil, &image_mem)
 	if result != .SUCCESS {
 		panic("Failed to allocate image memory.")
@@ -162,19 +134,17 @@ create_image :: proc(
 		panic("Failed to bind image memory.")
 	}
 
-	return image, image_mem
+	return
 }
 
 transition_image_layout :: proc(
-	device: vk.Device,
-	command_pool: vk.CommandPool,
-	queue: vk.Queue,
+	using ctx: ^VkContext,
 	old, new: vk.ImageLayout,
 	image: vk.Image,
 	format: vk.Format,
 	mip_levels: int,
 ) {
-	command_buffer := begin_single_time_commands(device, command_pool)
+	command_buffer := begin_single_time_commands(ctx)
 
 	aspeck_mask: vk.ImageAspectFlags = {.COLOR}
 	if new == .DEPTH_STENCIL_ATTACHMENT_OPTIMAL {
@@ -225,18 +195,16 @@ transition_image_layout :: proc(
 
 	vk.CmdPipelineBarrier(command_buffer, srcStage, dstStage, {}, 0, nil, 0, nil, 1, &barrier)
 
-	end_single_time_commands(device, command_pool, command_buffer, queue)
+	end_single_time_commands(ctx, command_buffer)
 }
 
 copy_buffer_to_image :: proc(
-	device: vk.Device,
-	command_pool: vk.CommandPool,
-	queue: vk.Queue,
+	using ctx: ^VkContext,
 	src: vk.Buffer,
 	dst: vk.Image,
 	width, height: int,
 ) {
-	command_buffer := begin_single_time_commands(device, command_pool)
+	command_buffer := begin_single_time_commands(ctx)
 
 	region := vk.BufferImageCopy {
 		imageSubresource = {aspectMask = {.COLOR}, layerCount = 1},
@@ -245,23 +213,25 @@ copy_buffer_to_image :: proc(
 
 	vk.CmdCopyBufferToImage(command_buffer, src, dst, .TRANSFER_DST_OPTIMAL, 1, &region)
 
-	end_single_time_commands(device, command_pool, command_buffer, queue)
+	end_single_time_commands(ctx, command_buffer)
 }
 
 create_texture_image_view :: proc(
-	device: vk.Device,
+	using ctx: ^VkContext,
 	using tex_image: TextureImage,
 ) -> vk.ImageView {
-	return create_image_view(device, image, .R8G8B8A8_SRGB, {.COLOR}, levels)
+	return create_image_view(ctx, image, .R8G8B8A8_SRGB, {.COLOR}, levels)
 }
 
 create_image_view :: proc(
-	device: vk.Device,
+	using ctx: ^VkContext,
 	image: vk.Image,
 	format: vk.Format,
 	aspect_mask: vk.ImageAspectFlags,
 	mip_levels: int,
-) -> vk.ImageView {
+) -> (
+	view: vk.ImageView,
+) {
 	create_info := vk.ImageViewCreateInfo {
 		sType = .IMAGE_VIEW_CREATE_INFO,
 		image = image,
@@ -274,15 +244,20 @@ create_image_view :: proc(
 		},
 	}
 
-	view: vk.ImageView
 	result := vk.CreateImageView(device, &create_info, nil, &view)
 	if result != .SUCCESS {
 		panic("Failed to create image view.")
 	}
-	return view
+	return
 }
 
-create_texture_sampler :: proc(device: vk.Device, anisotropy: f32, mip_levels: int) -> vk.Sampler {
+create_texture_sampler :: proc(
+	using ctx: ^VkContext,
+	anisotropy: f32,
+	mip_levels: int,
+) -> (
+	sampler: vk.Sampler,
+) {
 	create_info := vk.SamplerCreateInfo {
 		sType                   = .SAMPLER_CREATE_INFO,
 		magFilter               = .LINEAR,
@@ -302,12 +277,11 @@ create_texture_sampler :: proc(device: vk.Device, anisotropy: f32, mip_levels: i
 		maxLod                  = f32(mip_levels),
 	}
 
-	sampler: vk.Sampler
 	result := vk.CreateSampler(device, &create_info, nil, &sampler)
 	if result != .SUCCESS {
 		panic("Failed to create texture sampler.")
 	}
-	return sampler
+	return
 }
 
 AttachmentBuffer :: struct {
@@ -317,26 +291,21 @@ AttachmentBuffer :: struct {
 	format: vk.Format,
 }
 
-destroy_attachment_buffer :: proc(device: vk.Device, buffer: AttachmentBuffer) {
-	destroy_image(device, buffer.image, buffer.memory)
-	vk.DestroyImageView(device, buffer.view, nil)
+destroy_attachment_buffer :: proc(ctx: ^VkContext, using buffer: AttachmentBuffer) {
+	destroy_image(ctx, image, memory)
+	vk.DestroyImageView(ctx.device, buffer.view, nil)
 }
 
 create_color_buffer :: proc(
-	device: vk.Device,
-	pdevice: vk.PhysicalDevice,
+	using ctx: ^VkContext,
 	sc_config: SwapchainConfig,
-	command_pool: vk.CommandPool,
-	queue: vk.Queue,
-	sample_count: vk.SampleCountFlag,
 ) -> (
 	b: AttachmentBuffer,
 ) {
 	b.format = sc_config.format.format
 
 	b.image, b.memory = create_image(
-		device,
-		pdevice,
+		ctx,
 		int(sc_config.extent.width),
 		int(sc_config.extent.height),
 		b.format,
@@ -344,29 +313,24 @@ create_color_buffer :: proc(
 		{.COLOR_ATTACHMENT},
 		{.DEVICE_LOCAL},
 		mip_levels = 1,
-		sample_count = sample_count,
+		sample_count = ctx.pdevice.max_sample_count,
 	)
 
-	b.view = create_image_view(device, b.image, b.format, {.COLOR}, mip_levels = 1)
+	b.view = create_image_view(ctx, b.image, b.format, {.COLOR}, mip_levels = 1)
 
 	return
 }
 
 create_depth_buffer :: proc(
-	device: vk.Device,
-	pdevice: vk.PhysicalDevice,
+	using ctx: ^VkContext,
 	sc_config: SwapchainConfig,
-	command_pool: vk.CommandPool,
-	queue: vk.Queue,
-	sample_count: vk.SampleCountFlag,
 ) -> (
 	b: AttachmentBuffer,
 ) {
-	b.format = find_depth_format(pdevice)
+	b.format = find_depth_format(pdevice.handle)
 
 	b.image, b.memory = create_image(
-		device,
-		pdevice,
+		ctx,
 		int(sc_config.extent.width),
 		int(sc_config.extent.height),
 		b.format,
@@ -374,15 +338,13 @@ create_depth_buffer :: proc(
 		{.DEPTH_STENCIL_ATTACHMENT},
 		{.DEVICE_LOCAL},
 		mip_levels = 1,
-		sample_count = sample_count,
+		sample_count = ctx.pdevice.max_sample_count,
 	)
 
-	b.view = create_image_view(device, b.image, b.format, {.DEPTH}, mip_levels = 1)
+	b.view = create_image_view(ctx, b.image, b.format, {.DEPTH}, mip_levels = 1)
 
 	transition_image_layout(
-		device,
-		command_pool,
-		queue,
+		ctx,
 		.UNDEFINED,
 		.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 		b.image,
@@ -432,21 +394,15 @@ has_stencil :: proc(format: vk.Format) -> bool {
 	return format == .D32_SFLOAT_S8_UINT || format == .D24_UNORM_S8_UINT
 }
 
-generate_mipmaps :: proc(
-	device: vk.Device,
-	pdevice: vk.PhysicalDevice,
-	command_pool: vk.CommandPool,
-	queue: vk.Queue,
-	using texture_image: TextureImage,
-) {
+generate_mipmaps :: proc(using ctx: ^VkContext, using texture_image: TextureImage) {
 	fmt_properties: vk.FormatProperties
-	vk.GetPhysicalDeviceFormatProperties(pdevice, format, &fmt_properties)
+	vk.GetPhysicalDeviceFormatProperties(pdevice.handle, format, &fmt_properties)
 	if !(fmt_properties.optimalTilingFeatures & {.SAMPLED_IMAGE_FILTER_LINEAR} ==
 		   {.SAMPLED_IMAGE_FILTER_LINEAR}) {
 		panic("Texture image format does not support blitting.")
 	}
 
-	command_buffer := begin_single_time_commands(device, command_pool)
+	command_buffer := begin_single_time_commands(ctx)
 
 	barrier := vk.ImageMemoryBarrier {
 		sType = .IMAGE_MEMORY_BARRIER,
@@ -554,5 +510,5 @@ generate_mipmaps :: proc(
 		&barrier,
 	)
 
-	end_single_time_commands(device, command_pool, command_buffer, queue)
+	end_single_time_commands(ctx, command_buffer)
 }

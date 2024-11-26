@@ -19,7 +19,7 @@ UboBuffer :: struct {
 	mapped_ptr: rawptr,
 }
 
-create_descriptor_set_layout :: proc(device: vk.Device) -> vk.DescriptorSetLayout {
+create_descriptor_set_layout :: proc(using ctx: ^VkContext) -> (layout: vk.DescriptorSetLayout) {
 	layout_bindings := []vk.DescriptorSetLayoutBinding {
 		{
 			binding = 0,
@@ -41,29 +41,26 @@ create_descriptor_set_layout :: proc(device: vk.Device) -> vk.DescriptorSetLayou
 		pBindings    = raw_data(layout_bindings),
 	}
 
-	layout: vk.DescriptorSetLayout
 	result := vk.CreateDescriptorSetLayout(device, &create_info, nil, &layout)
 	if result != .SUCCESS {
 		panic("Failed to create descriptor set layout")
 	}
-	return layout
+	return
 }
 
-destroy_ubo_buffer :: proc(device: vk.Device, buffer: UboBuffer) {
-	destroy_buffer(device, buffer.buffer, buffer.memory)
+destroy_ubo_buffer :: proc(ctx: ^VkContext, using ubo: UboBuffer) {
+	destroy_buffer(ctx, buffer, memory)
 }
 
 create_uniform_buffers :: proc(
-	device: vk.Device,
-	pdevice: vk.PhysicalDevice,
-) -> [MAX_FRAMES_IN_FLIGHT]UboBuffer {
-	buffers: [MAX_FRAMES_IN_FLIGHT]UboBuffer
-
+	using ctx: ^VkContext,
+) -> (
+	buffers: [MAX_FRAMES_IN_FLIGHT]UboBuffer,
+) {
 	buffer_size: vk.DeviceSize = size_of(UniformBufferObject)
 	for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
 		buffers[i].buffer, buffers[i].memory = create_buffer(
-			device,
-			pdevice,
+			ctx,
 			buffer_size,
 			{.UNIFORM_BUFFER},
 			{.HOST_VISIBLE, .HOST_COHERENT},
@@ -72,7 +69,7 @@ create_uniform_buffers :: proc(
 		vk.MapMemory(device, buffers[i].memory, 0, buffer_size, {}, &buffers[i].mapped_ptr)
 	}
 
-	return buffers
+	return
 }
 
 update_uniform_buffer :: proc(
@@ -83,7 +80,7 @@ update_uniform_buffer :: proc(
 	obj: UniformBufferObject
 
 	obj.model = linalg.matrix4_rotate(math.to_radians(f32(rotation_degs)), [3]f32{0, 0, 1})
-	obj.view = linalg.matrix4_look_at([3]f32{2, 2, 2}, [3]f32{0, 0, 0}, [3]f32{0, 0, 1})
+	obj.view = linalg.matrix4_look_at([3]f32{1.5, 1.5, 1.5}, [3]f32{0, 0, 0.2}, [3]f32{0, 0, 1})
 	obj.proj = perspective(
 		math.to_radians(f32(45)),
 		f32(swapchain_config.extent.width) / f32(swapchain_config.extent.height),
@@ -105,7 +102,7 @@ perspective :: proc(fovy, aspect, near, far: f32) -> (m: Mat4) {
 	return
 }
 
-create_descriptor_pool :: proc(device: vk.Device) -> vk.DescriptorPool {
+create_descriptor_pool :: proc(using ctx: ^VkContext) -> (pool: vk.DescriptorPool) {
 	pool_sizes := []vk.DescriptorPoolSize {
 		{type = .UNIFORM_BUFFER, descriptorCount = MAX_FRAMES_IN_FLIGHT},
 		{type = .COMBINED_IMAGE_SAMPLER, descriptorCount = MAX_FRAMES_IN_FLIGHT},
@@ -118,21 +115,22 @@ create_descriptor_pool :: proc(device: vk.Device) -> vk.DescriptorPool {
 		maxSets       = MAX_FRAMES_IN_FLIGHT,
 	}
 
-	pool: vk.DescriptorPool
 	result := vk.CreateDescriptorPool(device, &create_info, nil, &pool)
 	if result != .SUCCESS {
 		panic("Failed to create descriptor pool.")
 	}
-	return pool
+	return
 }
 
 create_descriptor_sets :: proc(
-	device: vk.Device,
+	using ctx: ^VkContext,
 	pool: vk.DescriptorPool,
 	layout: vk.DescriptorSetLayout,
 	ubo_buffers: [MAX_FRAMES_IN_FLIGHT]UboBuffer,
 	model: Model,
-) -> [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet {
+) -> (
+	sets: [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet,
+) {
 
 	layouts: [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSetLayout
 	for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
@@ -146,7 +144,6 @@ create_descriptor_sets :: proc(
 		pSetLayouts        = raw_data(layouts[:]),
 	}
 
-	sets: [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet
 	result := vk.AllocateDescriptorSets(device, &alloc_info, raw_data(sets[:]))
 	if result != .SUCCESS {
 		panic("Failed to allocate descriptor sets.")
@@ -189,5 +186,5 @@ create_descriptor_sets :: proc(
 		vk.UpdateDescriptorSets(device, u32(len(desc_write)), raw_data(desc_write), 0, nil)
 	}
 
-	return sets
+	return
 }

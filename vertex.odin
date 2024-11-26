@@ -30,19 +30,15 @@ get_vertex_attribute_descriptions :: proc() -> [2]vk.VertexInputAttributeDescrip
 }
 
 create_vertex_buffer :: proc(
-	device: vk.Device,
-	pdevice: vk.PhysicalDevice,
-	command_pool: vk.CommandPool,
-	queue: vk.Queue,
+	using ctx: ^VkContext,
 	vertices: []obj.Vertex,
 ) -> (
-	vk.Buffer,
-	vk.DeviceMemory,
+	final_buffer: vk.Buffer,
+	final_buffer_mem: vk.DeviceMemory,
 ) {
 	size := vk.DeviceSize(size_of(obj.Vertex) * len(vertices))
 	staging_buffer, staging_buffer_mem := create_buffer(
-		device,
-		pdevice,
+		ctx,
 		size,
 		{.TRANSFER_SRC},
 		{.HOST_VISIBLE, .HOST_COHERENT},
@@ -56,36 +52,30 @@ create_vertex_buffer :: proc(
 	intrinsics.mem_copy(data, raw_data(vertices), size)
 	vk.UnmapMemory(device, staging_buffer_mem)
 
-
-	final_buffer, final_buffer_mem := create_buffer(
-		device,
-		pdevice,
+	final_buffer, final_buffer_mem = create_buffer(
+		ctx,
 		size,
 		{.TRANSFER_DST, .VERTEX_BUFFER},
 		{.DEVICE_LOCAL},
 	)
 
-	copy_buffer(device, command_pool, queue, staging_buffer, final_buffer, size)
+	copy_buffer(ctx, staging_buffer, final_buffer, size)
 
-	destroy_buffer(device, staging_buffer, staging_buffer_mem)
+	destroy_buffer(ctx, staging_buffer, staging_buffer_mem)
 
-	return final_buffer, final_buffer_mem
+	return
 }
 
 create_index_buffer :: proc(
-	device: vk.Device,
-	pdevice: vk.PhysicalDevice,
-	command_pool: vk.CommandPool,
-	queue: vk.Queue,
+	using ctx: ^VkContext,
 	indices: []u32,
 ) -> (
-	vk.Buffer,
-	vk.DeviceMemory,
+	final_buffer: vk.Buffer,
+	final_buffer_mem: vk.DeviceMemory,
 ) {
 	size := vk.DeviceSize(size_of(u32) * len(indices))
 	staging_buffer, staging_buffer_mem := create_buffer(
-		device,
-		pdevice,
+		ctx,
 		size,
 		{.TRANSFER_SRC},
 		{.HOST_VISIBLE, .HOST_COHERENT},
@@ -99,17 +89,16 @@ create_index_buffer :: proc(
 	intrinsics.mem_copy(data, raw_data(indices), size)
 	vk.UnmapMemory(device, staging_buffer_mem)
 
-	final_buffer, final_buffer_mem := create_buffer(
-		device,
-		pdevice,
+	final_buffer, final_buffer_mem = create_buffer(
+		ctx,
 		size,
 		{.TRANSFER_DST, .INDEX_BUFFER},
 		{.DEVICE_LOCAL},
 	)
 
-	copy_buffer(device, command_pool, queue, staging_buffer, final_buffer, size)
+	copy_buffer(ctx, staging_buffer, final_buffer, size)
 
-	destroy_buffer(device, staging_buffer, staging_buffer_mem)
+	destroy_buffer(ctx, staging_buffer, staging_buffer_mem)
 
-	return final_buffer, final_buffer_mem
+	return
 }

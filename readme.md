@@ -176,6 +176,12 @@ Generate mipmaps for the model texture and update sampler to make use of the new
 
 Add MSAA support.
 
+### Extra.2: Cleanup and refactoring
+
+**This is not part of the original Vulkan tutorial!**
+
+Clean up the code, refactor to avoid passing to many things around all the time, make to code more "Odin-like" by applying idioms from the language.
+
 
 
 [0]: https://vulkan-tutorial.com/

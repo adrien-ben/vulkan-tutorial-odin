@@ -1,6 +1,6 @@
 package main
 
-import "core:fmt"
+import "core:log"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
@@ -31,25 +31,24 @@ delete_swapchain_support_details :: proc(details: SwapchainSupportDetails) {
 	delete(details.present_modes)
 }
 
-query_swapchain_support :: proc(
-	pdevice: vk.PhysicalDevice,
-	surface: vk.SurfaceKHR,
-) -> SwapchainSupportDetails {
-	details: SwapchainSupportDetails
-
-	result := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(pdevice, surface, &details.capabilities)
+query_swapchain_support :: proc(using ctx: ^VkContext) -> (details: SwapchainSupportDetails) {
+	result := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(
+		pdevice.handle,
+		surface,
+		&details.capabilities,
+	)
 	if result != .SUCCESS {
 		panic("Failed to get physical device surface capabilities.")
 	}
 
 	fmt_count: u32
-	result = vk.GetPhysicalDeviceSurfaceFormatsKHR(pdevice, surface, &fmt_count, nil)
+	result = vk.GetPhysicalDeviceSurfaceFormatsKHR(pdevice.handle, surface, &fmt_count, nil)
 	if result != .SUCCESS {
 		panic("Failed to get physical device surface format count.")
 	}
 	details.formats = make([]vk.SurfaceFormatKHR, fmt_count)
 	result = vk.GetPhysicalDeviceSurfaceFormatsKHR(
-		pdevice,
+		pdevice.handle,
 		surface,
 		&fmt_count,
 		raw_data(details.formats),
@@ -59,13 +58,13 @@ query_swapchain_support :: proc(
 	}
 
 	mode_count: u32
-	result = vk.GetPhysicalDeviceSurfacePresentModesKHR(pdevice, surface, &mode_count, nil)
+	result = vk.GetPhysicalDeviceSurfacePresentModesKHR(pdevice.handle, surface, &mode_count, nil)
 	if result != .SUCCESS {
 		panic("Failed to get physical device surface present mode count.")
 	}
 	details.present_modes = make([]vk.PresentModeKHR, mode_count)
 	result = vk.GetPhysicalDeviceSurfacePresentModesKHR(
-		pdevice,
+		pdevice.handle,
 		surface,
 		&mode_count,
 		raw_data(details.present_modes),
@@ -74,15 +73,15 @@ query_swapchain_support :: proc(
 		panic("Failed to get physical device surface present modes.")
 	}
 
-	return details
+	return
 }
 
 select_swapchain_config :: proc(
 	details: SwapchainSupportDetails,
 	window: glfw.WindowHandle,
-) -> SwapchainConfig {
-	config: SwapchainConfig
-
+) -> (
+	config: SwapchainConfig,
+) {
 	// select format
 	config.format = details.formats[0]
 	for f in details.formats {
@@ -126,38 +125,38 @@ select_swapchain_config :: proc(
 	// set transform
 	config.transform = details.capabilities.currentTransform
 
-	return config
+	return
 }
 
-destroy_swapchain :: proc(device: vk.Device, swapchain: Swapchain) {
+destroy_swapchain :: proc(using ctx: ^VkContext, swapchain: Swapchain) {
 	for fb in swapchain.framebuffers {
 		vk.DestroyFramebuffer(device, fb, nil)
 	}
 	delete(swapchain.framebuffers)
-	fmt.println("Vulkan swapchain framebuffers destroyed.")
+	log.debug("Vulkan swapchain framebuffers destroyed.")
 
 
 	for view in swapchain.views {
 		vk.DestroyImageView(device, view, nil)
 	}
 	delete(swapchain.views)
-	fmt.println("Vulkan swapchain image views destroyed.")
+	log.debug("Vulkan swapchain image views destroyed.")
 
 	delete(swapchain.images)
 
 	vk.DestroySwapchainKHR(device, swapchain.handle, nil)
-	fmt.println("Vulkan swapchain destroyed.")
+	log.debug("Vulkan swapchain destroyed.")
 }
 
 create_swapchain :: proc(
-	device: vk.Device,
-	pdevice: PhysicalDevice,
-	surface: vk.SurfaceKHR,
+	using ctx: ^VkContext,
 	color_buffer: AttachmentBuffer,
 	depth_buffer: AttachmentBuffer,
 	render_pass: vk.RenderPass,
 	config: SwapchainConfig,
-) -> Swapchain {
+) -> (
+	swapchain: Swapchain,
+) {
 	// create the swapchain
 	create_info := vk.SwapchainCreateInfoKHR {
 		sType            = .SWAPCHAIN_CREATE_INFO_KHR,
@@ -187,136 +186,116 @@ create_swapchain :: proc(
 		create_info.imageSharingMode = .EXCLUSIVE
 	}
 
-	swapchain := Swapchain {
-		config = config,
-	}
+	swapchain.config = config
 
 	result := vk.CreateSwapchainKHR(device, &create_info, nil, &swapchain.handle)
 	if result != .SUCCESS {
 		panic("Failed to create Vulkan swapchain.")
 	}
 
-	swapchain.images = get_swapchain_images(device, swapchain.handle)
-	fmt.println("Vulkan swapchain image created.")
+	swapchain.images = get_swapchain_images(ctx, swapchain.handle)
+	log.debug("Vulkan swapchain image created.")
 
-	swapchain.views = create_swapchain_image_views(device, config, swapchain.images)
-	fmt.println("Vulkan swapchain image views created.")
+	swapchain.views = create_swapchain_image_views(ctx, config, swapchain.images)
+	log.debug("Vulkan swapchain image views created.")
 
 	swapchain.framebuffers = create_swapchain_framebuffers(
-		device,
+		ctx,
 		config,
 		swapchain.views,
 		color_buffer,
 		depth_buffer,
 		render_pass,
 	)
-	fmt.println("Vulkan swapchain framebuffers created.")
+	log.debug("Vulkan swapchain framebuffers created.")
 
-	return swapchain
+	return
 }
 
 recreate_swapchain :: proc(
-	device: vk.Device,
-	pdevice: PhysicalDevice,
+	using ctx: ^VkContext,
 	window: glfw.WindowHandle,
-	surface: vk.SurfaceKHR,
-	color_buffer: AttachmentBuffer,
-	depth_buffer: AttachmentBuffer,
-	sample_count: vk.SampleCountFlag,
+	old_color_buffer: AttachmentBuffer,
+	old_depth_buffer: AttachmentBuffer,
 	render_pass: vk.RenderPass,
-	command_pool: vk.CommandPool,
-	queue: vk.Queue,
 	current: Swapchain,
 ) -> (
-	AttachmentBuffer,
-	AttachmentBuffer,
-	Swapchain,
+	new_color_buffer: AttachmentBuffer,
+	new_depth_buffer: AttachmentBuffer,
+	new_swapchain: Swapchain,
 ) {
 	result := vk.DeviceWaitIdle(device)
 	if result != .SUCCESS {
 		panic("Failed to wait for device to be idle.")
 	}
 
-	destroy_attachment_buffer(device, color_buffer)
-	destroy_attachment_buffer(device, depth_buffer)
-	destroy_swapchain(device, current)
+	destroy_attachment_buffer(ctx, old_color_buffer)
+	destroy_attachment_buffer(ctx, old_depth_buffer)
+	destroy_swapchain(ctx, current)
 
-	swapchain_support := query_swapchain_support(pdevice.handle, surface)
+	swapchain_support := query_swapchain_support(ctx)
 	defer {
 		delete_swapchain_support_details(swapchain_support)
 	}
 	swapchain_config := select_swapchain_config(swapchain_support, window)
 
-	color_buffer := create_color_buffer(
-		device,
-		pdevice.handle,
-		swapchain_config,
-		command_pool,
-		queue,
-		sample_count,
-	)
-	depth_buffer := create_depth_buffer(
-		device,
-		pdevice.handle,
-		swapchain_config,
-		command_pool,
-		queue,
-		sample_count,
-	)
-	swapchain := create_swapchain(
-		device,
-		pdevice,
-		surface,
-		color_buffer,
-		depth_buffer,
+	new_color_buffer = create_color_buffer(ctx, swapchain_config)
+	new_depth_buffer = create_depth_buffer(ctx, swapchain_config)
+	new_swapchain = create_swapchain(
+		ctx,
+		new_color_buffer,
+		new_depth_buffer,
 		render_pass,
 		swapchain_config,
 	)
 
-	return color_buffer, depth_buffer, swapchain
+	return
 }
 
-get_swapchain_images :: proc(device: vk.Device, swapchain: vk.SwapchainKHR) -> []vk.Image {
+get_swapchain_images :: proc(
+	using ctx: ^VkContext,
+	swapchain: vk.SwapchainKHR,
+) -> (
+	imgs: []vk.Image,
+) {
 	img_count: u32
 	result := vk.GetSwapchainImagesKHR(device, swapchain, &img_count, nil)
 	if result != .SUCCESS {
 		panic("Failed to get swapchain image count.")
 	}
-	imgs := make([]vk.Image, img_count)
+	imgs = make([]vk.Image, img_count)
 	result = vk.GetSwapchainImagesKHR(device, swapchain, &img_count, raw_data(imgs))
 	if result != .SUCCESS {
 		panic("Failed to get swapchain images.")
 	}
-	return imgs
+	return
 }
 
 create_swapchain_image_views :: proc(
-	device: vk.Device,
+	using ctx: ^VkContext,
 	config: SwapchainConfig,
 	imgs: []vk.Image,
-) -> []vk.ImageView {
-	views := make([]vk.ImageView, len(imgs))
+) -> (
+	views: []vk.ImageView,
+) {
+	views = make([]vk.ImageView, len(imgs))
 	for img, index in imgs {
-		views[index] = create_image_view(
-			device,
-			img,
-			config.format.format,
-			{.COLOR},
-			mip_levels = 1,
-		)
+		views[index] = create_image_view(ctx, img, config.format.format, {.COLOR}, mip_levels = 1)
 	}
-	return views
+	return
 }
 
 create_swapchain_framebuffers :: proc(
-	device: vk.Device,
+	using ctx: ^VkContext,
 	config: SwapchainConfig,
 	views: []vk.ImageView,
 	color_buffer: AttachmentBuffer,
 	depth_buffer: AttachmentBuffer,
 	render_pass: vk.RenderPass,
-) -> []vk.Framebuffer {
-	framebuffers := make([]vk.Framebuffer, len(views))
+) -> (
+	framebuffers: []vk.Framebuffer,
+) {
+	framebuffers = make([]vk.Framebuffer, len(views))
 	for view, index in views {
 		attachments := []vk.ImageView{color_buffer.view, depth_buffer.view, view}
 		create_info := vk.FramebufferCreateInfo {
@@ -334,5 +313,5 @@ create_swapchain_framebuffers :: proc(
 			panic("Failed to create swapchain framebuffer.")
 		}
 	}
-	return framebuffers
+	return
 }

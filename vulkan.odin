@@ -2,33 +2,35 @@ package main
 
 import "base:runtime"
 import "core:fmt"
+import "core:log"
 import "core:slice"
 import "core:strings"
 import "core:time"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
-WIN_WIDTH :: 800
-WIN_HEIGHT :: 600
+WIN_WIDTH :: 1280
+WIN_HEIGHT :: 1024
 
 MAX_FRAMES_IN_FLIGHT :: 2
 
-ENABLE_VALIDATION_LAYERS :: #config(ENABLE_VALIDATION_LAYERS, false)
+ENABLE_VALIDATION_LAYERS :: #config(ENABLE_VALIDATION_LAYERS, true)
 VALIDATION_LAYERS := [?]cstring{"VK_LAYER_KHRONOS_validation"}
 
 DEVICE_EXTENSIONS := [?]cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
 
 main :: proc() {
-	fmt.println("Hello Vulkan!")
+	context.logger = log.create_console_logger()
+	defer log.destroy_console_logger(context.logger)
 
 	if !glfw.Init() {
 		panic("Failed to init GLFW.")
 	}
 	defer {
 		glfw.Terminate()
-		fmt.println("GLFW terminated.")
+		log.debug("GLFW terminated.")
 	}
-	fmt.println("GLFW initialized.")
+	log.debug("GLFW initialized.")
 
 	glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
 	window := glfw.CreateWindow(WIN_WIDTH, WIN_HEIGHT, "Vulkan", nil, nil)
@@ -37,187 +39,111 @@ main :: proc() {
 	}
 	defer {
 		glfw.DestroyWindow(window)
-		fmt.println("Window destroyed.")
+		log.debug("Window destroyed.")
 	}
-	fmt.println("Window created.")
+	log.debug("Window created.")
 
-	vk.load_proc_addresses((rawptr)(glfw.GetInstanceProcAddress))
-
-	instance := create_instance()
+	vulkan_ctx := create_vk_context(window)
 	defer {
-		vk.DestroyInstance(instance, nil)
-		fmt.println("Vulkan instance destroyed.")
-	}
-	fmt.println("Vulkan instance created.")
-
-	vk.load_proc_addresses(instance)
-
-	when ENABLE_VALIDATION_LAYERS {
-		debug_messenger := setup_debug_messenger(instance)
-		defer {
-			vk.DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nil)
-			fmt.println("Vulkan debug messenger destroyed.")
-		}
-		fmt.println("Vulkan debug messenger created.")
+		destroy_vk_context(vulkan_ctx)
 	}
 
-	surface := create_surface(instance, window)
-	defer {
-		vk.DestroySurfaceKHR(instance, surface, nil)
-		fmt.println("Vulkan surface destroyed.")
-	}
-	fmt.println("Vulkan surface created.")
+	command_buffers := allocate_command_buffers(&vulkan_ctx)
+	log.debug("Vulkan command buffer allocated.")
 
-	pdevice, found := pick_physical_device(instance, surface)
-	if !found {
-		fmt.eprintln("No suitable Vulkan physical device found.")
-		return
-	}
-	fmt.printfln("Vulkan physical device selected: %#v.", pdevice)
-
-	device := create_logical_device(pdevice)
-	defer {
-		vk.DestroyDevice(device, nil)
-		fmt.println("Vulkan logical device destroyed.")
-	}
-	fmt.println("Vulkan logical device created.")
-
-	graphics_queue: vk.Queue
-	vk.GetDeviceQueue(
-		device,
-		u32(pdevice.queue_family_indices.graphics_family),
-		0,
-		&graphics_queue,
-	)
-
-	present_queue: vk.Queue
-	vk.GetDeviceQueue(device, u32(pdevice.queue_family_indices.present_family), 0, &present_queue)
-
-	command_pool := create_command_pool(device, pdevice.queue_family_indices.graphics_family)
-	defer {
-		vk.DestroyCommandPool(device, command_pool, nil)
-		fmt.println("Vulkan command pool destroyed.")
-	}
-	fmt.println("Vulkan command pool created.")
-
-	command_buffers := allocate_command_buffers(device, command_pool)
-	fmt.println("Vulkan command buffer allocated.")
-
-	swapchain_support := query_swapchain_support(pdevice.handle, surface)
+	swapchain_support := query_swapchain_support(&vulkan_ctx)
 	defer {
 		delete_swapchain_support_details(swapchain_support)
 	}
 	swapchain_config := select_swapchain_config(swapchain_support, window)
 
-	color_buffer := create_color_buffer(
-		device,
-		pdevice.handle,
-		swapchain_config,
-		command_pool,
-		graphics_queue,
-		pdevice.max_sample_count,
-	)
+	color_buffer := create_color_buffer(&vulkan_ctx, swapchain_config)
 	defer {
-		destroy_attachment_buffer(device, color_buffer)
-		fmt.println("Color buffer destroyed.")
+		destroy_attachment_buffer(&vulkan_ctx, color_buffer)
+		log.debug("Color buffer destroyed.")
 	}
-	fmt.println("Color buffer created.")
+	log.debug("Color buffer created.")
 
-	depth_buffer := create_depth_buffer(
-		device,
-		pdevice.handle,
-		swapchain_config,
-		command_pool,
-		graphics_queue,
-		pdevice.max_sample_count,
-	)
+	depth_buffer := create_depth_buffer(&vulkan_ctx, swapchain_config)
 	defer {
-		destroy_attachment_buffer(device, depth_buffer)
-		fmt.println("Depth buffer destroyed.")
+		destroy_attachment_buffer(&vulkan_ctx, depth_buffer)
+		log.debug("Depth buffer destroyed.")
 	}
-	fmt.println("Depth buffer created.")
+	log.debug("Depth buffer created.")
 
-	render_pass := create_render_pass(
-		device,
-		swapchain_config,
-		depth_buffer.format,
-		pdevice.max_sample_count,
-	)
+	render_pass := create_render_pass(&vulkan_ctx, swapchain_config, depth_buffer.format)
 	defer {
-		vk.DestroyRenderPass(device, render_pass, nil)
-		fmt.println("Vulkan render pass destroyed.")
+		vk.DestroyRenderPass(vulkan_ctx.device, render_pass, nil)
+		log.debug("Vulkan render pass destroyed.")
 	}
-	fmt.println("Vulkan render pass created.")
+	log.debug("Vulkan render pass created.")
 
 	swapchain := create_swapchain(
-		device,
-		pdevice,
-		surface,
+		&vulkan_ctx,
 		color_buffer,
 		depth_buffer,
 		render_pass,
 		swapchain_config,
 	)
 	defer {
-		destroy_swapchain(device, swapchain)
-		fmt.println("Swapchain destroyed.")
+		destroy_swapchain(&vulkan_ctx, swapchain)
+		log.debug("Swapchain destroyed.")
 	}
-	fmt.println("Swapchain created.")
+	log.debug("Swapchain created.")
 
-	descriptor_set_layout := create_descriptor_set_layout(device)
+	descriptor_set_layout := create_descriptor_set_layout(&vulkan_ctx)
 	defer {
-		vk.DestroyDescriptorSetLayout(device, descriptor_set_layout, nil)
-		fmt.println("Descriptor set layout destroyed.")
+		vk.DestroyDescriptorSetLayout(vulkan_ctx.device, descriptor_set_layout, nil)
+		log.debug("Descriptor set layout destroyed.")
 	}
-	fmt.println("Descriptor set layout created.")
+	log.debug("Descriptor set layout created.")
 
 	graphics_pipeline_layout, graphics_pipeline := create_graphics_pipeline(
-		device,
+		&vulkan_ctx,
 		render_pass,
-		&descriptor_set_layout,
-		pdevice.max_sample_count,
+		descriptor_set_layout,
 	)
 	defer {
-		vk.DestroyPipelineLayout(device, graphics_pipeline_layout, nil)
-		vk.DestroyPipeline(device, graphics_pipeline, nil)
-		fmt.println("Vulkan graphics pipeline and layout destroyed.")
+		vk.DestroyPipelineLayout(vulkan_ctx.device, graphics_pipeline_layout, nil)
+		vk.DestroyPipeline(vulkan_ctx.device, graphics_pipeline, nil)
+		log.debug("Vulkan graphics pipeline and layout destroyed.")
 	}
-	fmt.println("Vulkan graphics pipeline and layout created.")
+	log.debug("Vulkan graphics pipeline and layout created.")
 
-	sync_objs := create_sync_objects(device)
+	sync_objs := create_sync_objects(&vulkan_ctx)
 	defer {
 		for o in sync_objs {
-			destroy_sync_objects(device, o)
+			destroy_sync_objects(&vulkan_ctx, o)
 		}
-		fmt.println("Vulkan sync objects destroyed.")
+		log.debug("Vulkan sync objects destroyed.")
 	}
-	fmt.println("Vulkan sync objects created.")
+	log.debug("Vulkan sync objects created.")
 
-	ubo_buffers := create_uniform_buffers(device, pdevice.handle)
+	ubo_buffers := create_uniform_buffers(&vulkan_ctx)
 	defer {
 		for b in ubo_buffers {
-			destroy_ubo_buffer(device, b)
+			destroy_ubo_buffer(&vulkan_ctx, b)
 		}
-		fmt.println("UBO buffers destroyed.")
+		log.debug("UBO buffers destroyed.")
 	}
-	fmt.println("UBO buffers created.")
+	log.debug("UBO buffers created.")
 
-	model := load_model(device, pdevice, command_pool, graphics_queue)
+	model := load_model(&vulkan_ctx)
 	defer {
-		destroy_model(device, model)
-		fmt.println("Model destroyed.")
+		destroy_model(&vulkan_ctx, model)
+		log.debug("Model destroyed.")
 	}
-	fmt.println("Model created.")
+	log.debug("Model created.")
 
-	descriptor_pool := create_descriptor_pool(device)
+	descriptor_pool := create_descriptor_pool(&vulkan_ctx)
 	defer {
-		vk.DestroyDescriptorPool(device, descriptor_pool, nil)
-		fmt.println("Descriptor pool destroyed.")
+		vk.DestroyDescriptorPool(vulkan_ctx.device, descriptor_pool, nil)
+		log.debug("Descriptor pool destroyed.")
 	}
-	fmt.println("Descriptor pool created.")
+	log.debug("Descriptor pool created.")
 
 	descriptor_sets := create_descriptor_sets(
-		device,
+		&vulkan_ctx,
 		descriptor_pool,
 		descriptor_set_layout,
 		ubo_buffers,
@@ -239,7 +165,7 @@ main :: proc() {
 			if w == 0 || h == 0 {
 				continue
 			}
-			fmt.println("Window has been resized.")
+			log.debug("Window has been resized.")
 			fb_w = w
 			fb_h = h
 			is_swapchain_dirty = true
@@ -249,19 +175,14 @@ main :: proc() {
 		result: vk.Result
 		if is_swapchain_dirty {
 			color_buffer, depth_buffer, swapchain = recreate_swapchain(
-				device,
-				pdevice,
+				&vulkan_ctx,
 				window,
-				surface,
 				color_buffer,
 				depth_buffer,
-				pdevice.max_sample_count,
 				render_pass,
-				command_pool,
-				graphics_queue,
 				swapchain,
 			)
-			fmt.println("Swapchain recreated.")
+			log.debug("Swapchain recreated.")
 			is_swapchain_dirty = false
 		}
 
@@ -269,16 +190,16 @@ main :: proc() {
 		command_buffer := command_buffers[current_frame]
 
 		// wait for previous frame
-		result = vk.WaitForFences(device, 1, &sync_obj.in_flight, true, max(u64))
+		result = vk.WaitForFences(vulkan_ctx.device, 1, &sync_obj.in_flight, true, max(u64))
 		if result != .SUCCESS {
-			fmt.eprintfln("Failed to wait for fence: %v.", result)
+			log.errorf("Failed to wait for fence: %v.", result)
 			break
 		}
 
 		// acquire a new image from the swapchain
 		image_index: u32
 		result = vk.AcquireNextImageKHR(
-			device,
+			vulkan_ctx.device,
 			swapchain.handle,
 			max(u64),
 			sync_obj.image_available,
@@ -289,13 +210,13 @@ main :: proc() {
 			is_swapchain_dirty = true
 			continue
 		} else if result != .SUCCESS && result != .SUBOPTIMAL_KHR {
-			fmt.eprintfln("Failed to acquire swapchain image: %v.", result)
+			log.errorf("Failed to acquire swapchain image: %v.", result)
 			break
 		}
 
-		result = vk.ResetFences(device, 1, &sync_obj.in_flight)
+		result = vk.ResetFences(vulkan_ctx.device, 1, &sync_obj.in_flight)
 		if result != .SUCCESS {
-			fmt.eprintfln("Failed to reset fence: %v.", result)
+			log.errorf("Failed to reset fence: %v.", result)
 			break
 		}
 
@@ -318,7 +239,7 @@ main :: proc() {
 		// record and submit drawing commands
 		result = vk.ResetCommandBuffer(command_buffer, nil)
 		if result != .SUCCESS {
-			fmt.eprintfln("Failed to reset command buffer: %v.", result)
+			log.errorf("Failed to reset command buffer: %v.", result)
 			break
 		}
 
@@ -330,7 +251,7 @@ main :: proc() {
 			graphics_pipeline_layout,
 			graphics_pipeline,
 			model,
-			&descriptor_sets[current_frame],
+			descriptor_sets[current_frame],
 		)
 
 		update_uniform_buffer(ubo_buffers[current_frame], swapchain.config, rotation_degs)
@@ -345,9 +266,9 @@ main :: proc() {
 			signalSemaphoreCount = 1,
 			pSignalSemaphores    = &sync_obj.render_finished,
 		}
-		result = vk.QueueSubmit(graphics_queue, 1, &submit_info, sync_obj.in_flight)
+		result = vk.QueueSubmit(vulkan_ctx.graphics_queue, 1, &submit_info, sync_obj.in_flight)
 		if result != .SUCCESS {
-			fmt.eprintfln("Failed to submit: %v.", result)
+			log.errorf("Failed to submit: %v.", result)
 			break
 		}
 
@@ -360,21 +281,100 @@ main :: proc() {
 			pSwapchains        = &swapchain.handle,
 			pImageIndices      = &image_index,
 		}
-		result = vk.QueuePresentKHR(present_queue, &present_info)
+		result = vk.QueuePresentKHR(vulkan_ctx.present_queue, &present_info)
 		if result == .ERROR_OUT_OF_DATE_KHR || result == .SUBOPTIMAL_KHR {
 			is_swapchain_dirty = true
 		} else if result != .SUCCESS {
-			fmt.eprintfln("Failed to acquire swapchain image: %v.", result)
+			log.errorf("Failed to acquire swapchain image: %v.", result)
 			break
 		}
 
 		current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT
 	}
 
-	vk.DeviceWaitIdle(device)
+	vk.DeviceWaitIdle(vulkan_ctx.device)
 }
 
-create_instance :: proc() -> vk.Instance {
+VkContext :: struct {
+	instance:        vk.Instance,
+	debug_messenger: Maybe(vk.DebugUtilsMessengerEXT),
+	surface:         vk.SurfaceKHR,
+	pdevice:         PhysicalDevice,
+	device:          vk.Device,
+	graphics_queue:  vk.Queue,
+	present_queue:   vk.Queue,
+	command_pool:    vk.CommandPool,
+}
+
+destroy_vk_context :: proc(using ctx: VkContext) {
+	vk.DestroyCommandPool(device, command_pool, nil)
+	log.debug("Vulkan command pool destroyed.")
+
+	vk.DestroyDevice(device, nil)
+	log.debug("Vulkan logical device destroyed.")
+
+	vk.DestroySurfaceKHR(instance, surface, nil)
+	log.debug("Vulkan surface destroyed.")
+
+	if dm, ok := debug_messenger.?; ok {
+		vk.DestroyDebugUtilsMessengerEXT(instance, dm, nil)
+		log.debug("Vulkan debug messenger destroyed.")
+	}
+
+	vk.DestroyInstance(instance, nil)
+	log.debug("Vulkan instance destroyed.")
+}
+
+create_vk_context :: proc(window: glfw.WindowHandle) -> (ctx: VkContext) {
+	vk.load_proc_addresses((rawptr)(glfw.GetInstanceProcAddress))
+
+	ctx.instance = create_instance()
+	log.debug("Vulkan instance created.")
+
+	vk.load_proc_addresses(ctx.instance)
+
+	when ENABLE_VALIDATION_LAYERS {
+		ctx.debug_messenger = setup_debug_messenger(ctx.instance)
+		log.debug("Vulkan debug messenger created.")
+	}
+
+	ctx.surface = create_surface(ctx.instance, window)
+	log.debug("Vulkan surface created.")
+
+	found: bool
+	ctx.pdevice, found = pick_physical_device(ctx.instance, ctx.surface)
+	if !found {
+		panic("No suitable Vulkan physical device found.")
+	}
+	log.infof("Vulkan physical device selected: %#v.", ctx.pdevice)
+
+	ctx.device = create_logical_device(ctx.pdevice)
+	log.debug("Vulkan logical device created.")
+
+	vk.GetDeviceQueue(
+		ctx.device,
+		u32(ctx.pdevice.queue_family_indices.graphics_family),
+		0,
+		&ctx.graphics_queue,
+	)
+
+	vk.GetDeviceQueue(
+		ctx.device,
+		u32(ctx.pdevice.queue_family_indices.present_family),
+		0,
+		&ctx.present_queue,
+	)
+
+	ctx.command_pool = create_command_pool(
+		ctx.device,
+		ctx.pdevice.queue_family_indices.graphics_family,
+	)
+	log.debug("Vulkan command pool created.")
+
+	return
+}
+
+create_instance :: proc() -> (instance: vk.Instance) {
 	// list required instance extensions
 	required_exts: [dynamic]cstring
 	defer delete(required_exts)
@@ -420,7 +420,7 @@ create_instance :: proc() -> vk.Instance {
 			}
 
 			if !found {
-				fmt.eprintfln("Required extension %v not supported.", required)
+				log.warnf("Required extension %v not supported.", required)
 				all_extensions_supported = false
 			}
 
@@ -457,7 +457,7 @@ create_instance :: proc() -> vk.Instance {
 			}
 
 			if !found {
-				fmt.eprintfln("Required validation layer %v not supported.", required)
+				log.warnf("Required validation layer %v not supported.", required)
 				all_layers_supported = false
 			}
 		}
@@ -493,13 +493,12 @@ create_instance :: proc() -> vk.Instance {
 		create_info.flags = {.ENUMERATE_PORTABILITY_KHR}
 	}
 
-	instance: vk.Instance
 	result = vk.CreateInstance(&create_info, nil, &instance)
 	if result != .SUCCESS {
 		panic("Failed to create instance.")
 	}
 
-	return instance
+	return
 }
 
 when ENABLE_VALIDATION_LAYERS {
@@ -530,28 +529,35 @@ when ENABLE_VALIDATION_LAYERS {
 		}
 	}
 
-	setup_debug_messenger :: proc(instance: vk.Instance) -> vk.DebugUtilsMessengerEXT {
+	setup_debug_messenger :: proc(
+		instance: vk.Instance,
+	) -> (
+		messenger: vk.DebugUtilsMessengerEXT,
+	) {
 		create_info := create_setup_messenger_create_info()
-		messenger: vk.DebugUtilsMessengerEXT
 		result := vk.CreateDebugUtilsMessengerEXT(instance, &create_info, nil, &messenger)
 		if result != .SUCCESS {
 			panic("Failed to create debug messenger.")
 		}
-		return messenger
+		return
 	}
 }
 
-create_surface :: proc(instance: vk.Instance, window: glfw.WindowHandle) -> vk.SurfaceKHR {
-	surface: vk.SurfaceKHR
+create_surface :: proc(
+	instance: vk.Instance,
+	window: glfw.WindowHandle,
+) -> (
+	surface: vk.SurfaceKHR,
+) {
 	result := glfw.CreateWindowSurface(instance, window, nil, &surface)
 	if result != .SUCCESS {
 		panic("Failed to create surface.")
 	}
-	return surface
+	return
 }
 
 PhysicalDevice :: struct {
-	handle:               vk.PhysicalDevice,
+	handle:               vk.PhysicalDevice `fmt:"-"`,
 	name:                 string,
 	queue_family_indices: QueueFamilyIndices,
 	properties:           vk.PhysicalDeviceProperties `fmt:"-"`,
@@ -567,8 +573,8 @@ pick_physical_device :: proc(
 	instance: vk.Instance,
 	surface: vk.SurfaceKHR,
 ) -> (
-	PhysicalDevice,
-	bool,
+	picked: PhysicalDevice,
+	found: bool,
 ) {
 	device_count: u32
 	if result := vk.EnumeratePhysicalDevices(instance, &device_count, nil); result != .SUCCESS {
@@ -582,20 +588,18 @@ pick_physical_device :: proc(
 		panic("Failed to list physical devices.")
 	}
 
-	picked: PhysicalDevice
 	best := 0
-	found := false
 	for d in devices {
 		properties: vk.PhysicalDeviceProperties
 		vk.GetPhysicalDeviceProperties(d, &properties)
 
 		name := cstring(&properties.deviceName[0])
 
-		fmt.printfln("Checking physical device: %v.", name)
+		log.debugf("Checking physical device: %v.", name)
 
 		qfamily_indices, ok := find_queue_families(d, surface)
 		if !ok {
-			fmt.println("No suitable queue family.")
+			log.debug("No suitable queue family.")
 			continue
 		}
 
@@ -630,7 +634,7 @@ pick_physical_device :: proc(
 				}
 
 				if !found_ext {
-					fmt.eprintfln("Required device extension %v not supported.", required)
+					log.debugf("Required device extension %v not supported.", required)
 					all_exts_supported = false
 				}
 			}
@@ -641,7 +645,7 @@ pick_physical_device :: proc(
 		supported_features: vk.PhysicalDeviceFeatures
 		vk.GetPhysicalDeviceFeatures(d, &supported_features)
 		if !supported_features.samplerAnisotropy {
-			fmt.eprintln("Sampler anisotropy is not supported.")
+			log.debug("Sampler anisotropy is not supported.")
 			continue
 		}
 
@@ -659,15 +663,15 @@ pick_physical_device :: proc(
 		}
 	}
 
-	return picked, found
+	return
 }
 
 find_queue_families :: proc(
 	pdevice: vk.PhysicalDevice,
 	surface: vk.SurfaceKHR,
 ) -> (
-	QueueFamilyIndices,
-	bool,
+	qfamily_indices: QueueFamilyIndices,
+	found: bool,
 ) {
 	family_count: u32
 	vk.GetPhysicalDeviceQueueFamilyProperties(pdevice, &family_count, nil)
@@ -678,7 +682,6 @@ find_queue_families :: proc(
 
 	graphics_found := false
 	present_found := false
-	qfamily_indices: QueueFamilyIndices
 	for f, index in families {
 		if vk.QueueFlag.GRAPHICS in f.queueFlags && !graphics_found {
 			qfamily_indices.graphics_family = index
@@ -693,11 +696,12 @@ find_queue_families :: proc(
 		}
 
 		if graphics_found && present_found {
-			return qfamily_indices, true
+			found = true
+			return
 		}
 	}
 
-	return {}, false
+	return
 }
 
 get_pdevice_score :: proc(pdevice_properties: vk.PhysicalDeviceProperties) -> int {
@@ -731,8 +735,7 @@ find_max_usable_sample_count :: proc(
 	return
 }
 
-
-create_logical_device :: proc(pdevice: PhysicalDevice) -> vk.Device {
+create_logical_device :: proc(pdevice: PhysicalDevice) -> (device: vk.Device) {
 	families := []int {
 		pdevice.queue_family_indices.graphics_family,
 		pdevice.queue_family_indices.present_family,
@@ -744,7 +747,7 @@ create_logical_device :: proc(pdevice: PhysicalDevice) -> vk.Device {
 
 	queue_create_infos := make([dynamic]vk.DeviceQueueCreateInfo)
 	defer delete(queue_create_infos)
-	for f in unique_families {
+	for _ in unique_families {
 		info := vk.DeviceQueueCreateInfo {
 			sType            = .DEVICE_QUEUE_CREATE_INFO,
 			queueFamilyIndex = u32(0),
@@ -772,25 +775,25 @@ create_logical_device :: proc(pdevice: PhysicalDevice) -> vk.Device {
 		device_create_info.ppEnabledLayerNames = raw_data(VALIDATION_LAYERS[:])
 	}
 
-	device: vk.Device
 	result := vk.CreateDevice(pdevice.handle, &device_create_info, nil, &device)
 	if result != .SUCCESS {
 		panic("Failed to create logical device.")
 	}
-	return device
+	return
 }
 
 create_render_pass :: proc(
-	device: vk.Device,
+	using ctx: ^VkContext,
 	config: SwapchainConfig,
 	depth_format: vk.Format,
-	sample_count: vk.SampleCountFlag,
-) -> vk.RenderPass {
+) -> (
+	render_pass: vk.RenderPass,
+) {
 	attachments := []vk.AttachmentDescription {
 		// color
 		{
 			format = config.format.format,
-			samples = {sample_count},
+			samples = {pdevice.max_sample_count},
 			loadOp = .CLEAR,
 			storeOp = .STORE,
 			stencilLoadOp = .DONT_CARE,
@@ -801,7 +804,7 @@ create_render_pass :: proc(
 		// depth
 		{
 			format = depth_format,
-			samples = {sample_count},
+			samples = {ctx.pdevice.max_sample_count},
 			loadOp = .CLEAR,
 			storeOp = .DONT_CARE,
 			stencilLoadOp = .DONT_CARE,
@@ -864,39 +867,37 @@ create_render_pass :: proc(
 		pDependencies   = &dependency,
 	}
 
-	render_pass: vk.RenderPass
 	result := vk.CreateRenderPass(device, &create_info, nil, &render_pass)
 	if result != .SUCCESS {
 		panic("Failed to create render pass.")
 	}
-	return render_pass
+	return
 }
 
 create_graphics_pipeline :: proc(
-	device: vk.Device,
+	using ctx: ^VkContext,
 	render_pass: vk.RenderPass,
-	descriptor_set_layout: ^vk.DescriptorSetLayout,
-	sample_count: vk.SampleCountFlag,
+	descriptor_set_layout: vk.DescriptorSetLayout,
 ) -> (
-	vk.PipelineLayout,
-	vk.Pipeline,
+	layout: vk.PipelineLayout,
+	pipeline: vk.Pipeline,
 ) {
 	// shader modules
 	vertex_shader_src := #load("shaders/vertex.spv", []u32)
 	vertex_shader_module := create_shader_module(device, vertex_shader_src)
 	defer {
 		vk.DestroyShaderModule(device, vertex_shader_module, nil)
-		fmt.println("Vertex shader module destroyed.")
+		log.debug("Vertex shader module destroyed.")
 	}
-	fmt.println("Vertex shader module created.")
+	log.debug("Vertex shader module created.")
 
 	fragment_shader_src := #load("shaders/fragment.spv", []u32)
 	fragment_shader_module := create_shader_module(device, fragment_shader_src)
 	defer {
 		vk.DestroyShaderModule(device, fragment_shader_module, nil)
-		fmt.println("Fragment shader module destroyed.")
+		log.debug("Fragment shader module destroyed.")
 	}
-	fmt.println("Fragment shader module created.")
+	log.debug("Fragment shader module created.")
 
 	// shader stages
 	shader_stages := []vk.PipelineShaderStageCreateInfo {
@@ -963,7 +964,7 @@ create_graphics_pipeline :: proc(
 	multisampling := vk.PipelineMultisampleStateCreateInfo {
 		sType                = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
 		sampleShadingEnable  = false,
-		rasterizationSamples = {sample_count},
+		rasterizationSamples = {ctx.pdevice.max_sample_count},
 	}
 
 	// color blending
@@ -987,12 +988,12 @@ create_graphics_pipeline :: proc(
 	}
 
 	// layout
+	descriptor_set_layout := descriptor_set_layout
 	layout_create_info := vk.PipelineLayoutCreateInfo {
 		sType          = .PIPELINE_LAYOUT_CREATE_INFO,
 		setLayoutCount = 1,
-		pSetLayouts    = descriptor_set_layout,
+		pSetLayouts    = &descriptor_set_layout,
 	}
-	layout: vk.PipelineLayout
 	result := vk.CreatePipelineLayout(device, &layout_create_info, nil, &layout)
 	if result != .SUCCESS {
 		panic("Failed to create graphics pipeline layout.")
@@ -1016,164 +1017,24 @@ create_graphics_pipeline :: proc(
 		subpass             = 0,
 	}
 
-	pipeline: vk.Pipeline
 	result = vk.CreateGraphicsPipelines(device, {}, 1, &create_info, nil, &pipeline)
 	if result != .SUCCESS {
 		panic("Failed to create graphics pipeline.")
 	}
 
-	return layout, pipeline
+	return
 }
 
-create_shader_module :: proc(device: vk.Device, src: []u32) -> vk.ShaderModule {
+create_shader_module :: proc(device: vk.Device, src: []u32) -> (module: vk.ShaderModule) {
 	create_info := vk.ShaderModuleCreateInfo {
 		sType    = .SHADER_MODULE_CREATE_INFO,
 		codeSize = size_of(u32) * len(src),
 		pCode    = raw_data(src),
 	}
 
-	module: vk.ShaderModule
 	result := vk.CreateShaderModule(device, &create_info, nil, &module)
 	if result != .SUCCESS {
 		panic("Failed to create shader module.")
 	}
-	return module
-}
-
-create_command_pool :: proc(device: vk.Device, queue_family_index: int) -> vk.CommandPool {
-	create_info := vk.CommandPoolCreateInfo {
-		sType            = .COMMAND_POOL_CREATE_INFO,
-		flags            = {.RESET_COMMAND_BUFFER},
-		queueFamilyIndex = u32(queue_family_index),
-	}
-
-	pool: vk.CommandPool
-	result := vk.CreateCommandPool(device, &create_info, nil, &pool)
-	if result != .SUCCESS {
-		panic("Failed to create command pool.")
-	}
-	return pool
-}
-
-allocate_command_buffers :: proc(
-	device: vk.Device,
-	pool: vk.CommandPool,
-) -> [MAX_FRAMES_IN_FLIGHT]vk.CommandBuffer {
-	alloc_info := vk.CommandBufferAllocateInfo {
-		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
-		commandPool        = pool,
-		level              = .PRIMARY,
-		commandBufferCount = MAX_FRAMES_IN_FLIGHT,
-	}
-
-	buffers: [MAX_FRAMES_IN_FLIGHT]vk.CommandBuffer
-	result := vk.AllocateCommandBuffers(device, &alloc_info, raw_data(buffers[:]))
-	if result != .SUCCESS {
-		panic("Failed to allocate command buffer.")
-	}
-	return buffers
-}
-
-record_command_buffer :: proc(
-	buffer: vk.CommandBuffer,
-	render_pass: vk.RenderPass,
-	framebuffer: vk.Framebuffer,
-	config: SwapchainConfig,
-	pipeline_layout: vk.PipelineLayout,
-	pipeline: vk.Pipeline,
-	model: Model,
-	descriptor_set: ^vk.DescriptorSet,
-) {
-	cmd_begin_info := vk.CommandBufferBeginInfo {
-		sType = .COMMAND_BUFFER_BEGIN_INFO,
-	}
-	result := vk.BeginCommandBuffer(buffer, &cmd_begin_info)
-	if result != .SUCCESS {
-		panic("Failed to begin command buffer.")
-	}
-
-	clear_values := []vk.ClearValue {
-		{color = vk.ClearColorValue{float32 = {0, 0, 0, 1}}},
-		{depthStencil = vk.ClearDepthStencilValue{depth = 1}},
-	}
-	render_pass_begin_info := vk.RenderPassBeginInfo {
-		sType = .RENDER_PASS_BEGIN_INFO,
-		renderPass = render_pass,
-		framebuffer = framebuffer,
-		renderArea = {offset = {}, extent = config.extent},
-		clearValueCount = u32(len(clear_values)),
-		pClearValues = raw_data(clear_values),
-	}
-
-	vk.CmdBeginRenderPass(buffer, &render_pass_begin_info, .INLINE)
-	vk.CmdBindPipeline(buffer, .GRAPHICS, pipeline)
-
-	vertex_buffer := model.vertex_buffer
-	offset: vk.DeviceSize = 0
-	vk.CmdBindVertexBuffers(buffer, 0, 1, &vertex_buffer, &offset)
-
-	index_buffer := model.index_buffer
-	vk.CmdBindIndexBuffer(buffer, index_buffer, 0, .UINT32)
-
-	vk.CmdBindDescriptorSets(buffer, .GRAPHICS, pipeline_layout, 0, 1, descriptor_set, 0, nil)
-
-	viewport := vk.Viewport {
-		width    = f32(config.extent.width),
-		height   = f32(config.extent.height),
-		maxDepth = 1,
-	}
-	vk.CmdSetViewport(buffer, 0, 1, &viewport)
-
-	scissor := vk.Rect2D {
-		extent = config.extent,
-	}
-	vk.CmdSetScissor(buffer, 0, 1, &scissor)
-	vk.CmdDrawIndexed(buffer, u32(model.index_count), 1, 0, 0, 0)
-
-	vk.CmdEndRenderPass(buffer)
-
-	result = vk.EndCommandBuffer(buffer)
-	if result != .SUCCESS {
-		panic("Failed to end command buffer.")
-	}
-}
-
-SyncObjects :: struct {
-	image_available: vk.Semaphore,
-	render_finished: vk.Semaphore,
-	in_flight:       vk.Fence,
-}
-
-destroy_sync_objects :: proc(device: vk.Device, objs: SyncObjects) {
-	vk.DestroySemaphore(device, objs.image_available, nil)
-	vk.DestroySemaphore(device, objs.render_finished, nil)
-	vk.DestroyFence(device, objs.in_flight, nil)
-}
-
-create_sync_objects :: proc(device: vk.Device) -> [MAX_FRAMES_IN_FLIGHT]SyncObjects {
-	objs: [MAX_FRAMES_IN_FLIGHT]SyncObjects
-
-	semaphore_info := vk.SemaphoreCreateInfo {
-		sType = .SEMAPHORE_CREATE_INFO,
-	}
-	fence_info := vk.FenceCreateInfo {
-		sType = .FENCE_CREATE_INFO,
-		flags = {.SIGNALED},
-	}
-	for &o in objs {
-		result := vk.CreateSemaphore(device, &semaphore_info, nil, &o.image_available)
-		if result != .SUCCESS {
-			panic("Failed to create image available semaphore.")
-		}
-		result = vk.CreateSemaphore(device, &semaphore_info, nil, &o.render_finished)
-		if result != .SUCCESS {
-			panic("Failed to create render finished semaphore.")
-		}
-		result = vk.CreateFence(device, &fence_info, nil, &o.in_flight)
-		if result != .SUCCESS {
-			panic("Failed to create fence.")
-		}
-	}
-
-	return objs
+	return
 }

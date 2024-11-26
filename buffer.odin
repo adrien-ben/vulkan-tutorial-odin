@@ -2,20 +2,19 @@ package main
 
 import vk "vendor:vulkan"
 
-destroy_buffer :: proc(device: vk.Device, buffer: vk.Buffer, memory: vk.DeviceMemory) {
+destroy_buffer :: proc(using ctx: ^VkContext, buffer: vk.Buffer, memory: vk.DeviceMemory) {
 	vk.DestroyBuffer(device, buffer, nil)
 	vk.FreeMemory(device, memory, nil)
 }
 
 create_buffer :: proc(
-	device: vk.Device,
-	pdevice: vk.PhysicalDevice,
+	using ctx: ^VkContext,
 	size: vk.DeviceSize,
 	usage: vk.BufferUsageFlags,
 	properties: vk.MemoryPropertyFlags,
 ) -> (
-	vk.Buffer,
-	vk.DeviceMemory,
+	buffer: vk.Buffer,
+	memory: vk.DeviceMemory,
 ) {
 	create_info := vk.BufferCreateInfo {
 		sType       = .BUFFER_CREATE_INFO,
@@ -24,7 +23,6 @@ create_buffer :: proc(
 		sharingMode = .EXCLUSIVE,
 	}
 
-	buffer: vk.Buffer
 	result := vk.CreateBuffer(device, &create_info, nil, &buffer)
 	if result != .SUCCESS {
 		panic("Failed to create Vulkan buffer.")
@@ -34,7 +32,7 @@ create_buffer :: proc(
 	vk.GetBufferMemoryRequirements(device, buffer, &requirements)
 
 
-	memory_type, found := find_memory_type(pdevice, requirements.memoryTypeBits, properties)
+	memory_type, found := find_memory_type(ctx, requirements.memoryTypeBits, properties)
 	if !found {
 		panic("Failed to find compatible memory type for vertex buffer memory.")
 	}
@@ -45,7 +43,6 @@ create_buffer :: proc(
 		memoryTypeIndex = memory_type,
 	}
 
-	memory: vk.DeviceMemory
 	result = vk.AllocateMemory(device, &alloc_info, nil, &memory)
 	if result != .SUCCESS {
 		panic("Failed to allocate memory for Vulkan buffer.")
@@ -56,11 +53,11 @@ create_buffer :: proc(
 		panic("Failed to bind memory to Vulkan buffer.")
 	}
 
-	return buffer, memory
+	return
 }
 
 find_memory_type :: proc(
-	pdevice: vk.PhysicalDevice,
+	using ctx: ^VkContext,
 	type_filter: u32,
 	properties: vk.MemoryPropertyFlags,
 ) -> (
@@ -68,7 +65,7 @@ find_memory_type :: proc(
 	bool,
 ) {
 	mem_properties: vk.PhysicalDeviceMemoryProperties
-	vk.GetPhysicalDeviceMemoryProperties(pdevice, &mem_properties)
+	vk.GetPhysicalDeviceMemoryProperties(pdevice.handle, &mem_properties)
 
 	for i: u32 = 0; i < mem_properties.memoryTypeCount; i += 1 {
 		mem_type := u32(1) << i
@@ -83,19 +80,13 @@ find_memory_type :: proc(
 	return 0, false
 }
 
-copy_buffer :: proc(
-	device: vk.Device,
-	command_pool: vk.CommandPool,
-	queue: vk.Queue,
-	src, dst: vk.Buffer,
-	size: vk.DeviceSize,
-) {
-	command_buffer := begin_single_time_commands(device, command_pool)
+copy_buffer :: proc(using ctx: ^VkContext, src, dst: vk.Buffer, size: vk.DeviceSize) {
+	command_buffer := begin_single_time_commands(ctx)
 
 	copy_region := vk.BufferCopy {
 		size = size,
 	}
 	vk.CmdCopyBuffer(command_buffer, src, dst, 1, &copy_region)
 
-	end_single_time_commands(device, command_pool, command_buffer, queue)
+	end_single_time_commands(ctx, command_buffer)
 }
