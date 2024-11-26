@@ -747,10 +747,10 @@ create_logical_device :: proc(pdevice: PhysicalDevice) -> (device: vk.Device) {
 
 	queue_create_infos := make([dynamic]vk.DeviceQueueCreateInfo)
 	defer delete(queue_create_infos)
-	for _ in unique_families {
+	for f in unique_families {
 		info := vk.DeviceQueueCreateInfo {
 			sType            = .DEVICE_QUEUE_CREATE_INFO,
-			queueFamilyIndex = u32(0),
+			queueFamilyIndex = u32(f),
 			queueCount       = 1,
 			pQueuePriorities = &queue_priorities,
 		}
