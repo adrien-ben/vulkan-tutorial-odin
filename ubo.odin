@@ -78,11 +78,11 @@ create_uniform_buffers :: proc(
 update_uniform_buffer :: proc(
 	buffer: UboBuffer,
 	swapchain_config: SwapchainConfig,
-	total_time_s: f32,
+	rotation_degs: f32,
 ) {
 	obj: UniformBufferObject
 
-	obj.model = linalg.matrix4_rotate(math.to_radians(f32(90)) * total_time_s, [3]f32{0, 0, 1})
+	obj.model = linalg.matrix4_rotate(math.to_radians(f32(rotation_degs)), [3]f32{0, 0, 1})
 	obj.view = linalg.matrix4_look_at([3]f32{2, 2, 2}, [3]f32{0, 0, 0}, [3]f32{0, 0, 1})
 	obj.proj = perspective(
 		math.to_radians(f32(45)),

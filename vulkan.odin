@@ -202,7 +202,9 @@ main :: proc() {
 		model,
 	)
 
-	start := time.tick_now()
+	last := time.tick_now()
+	rotation_degs: f32 = 0
+
 	current_frame := 0
 	is_swapchain_dirty := false
 	fb_w, fb_h := glfw.GetFramebufferSize(window)
@@ -273,7 +275,21 @@ main :: proc() {
 			break
 		}
 
-		total_time_s := f32(time.duration_seconds(time.tick_since(start)))
+		// compute model rotation
+		elasped_secs := f32(time.duration_seconds(time.tick_since(last)))
+		last = time.tick_now()
+
+		if glfw.GetKey(window, glfw.KEY_LEFT) == glfw.PRESS {
+			rotation_degs -= 90 * elasped_secs
+			if rotation_degs < -360 {
+				rotation_degs += 360
+			}
+		} else if glfw.GetKey(window, glfw.KEY_RIGHT) == glfw.PRESS {
+			rotation_degs += 90 * elasped_secs
+			if rotation_degs > 360 {
+				rotation_degs -= 360
+			}
+		}
 
 		// record and submit drawing commands
 		result = vk.ResetCommandBuffer(command_buffer, nil)
@@ -293,7 +309,7 @@ main :: proc() {
 			&descriptor_sets[current_frame],
 		)
 
-		update_uniform_buffer(ubo_buffers[current_frame], swapchain.config, total_time_s)
+		update_uniform_buffer(ubo_buffers[current_frame], swapchain.config, rotation_degs)
 
 		submit_info := vk.SubmitInfo {
 			sType                = .SUBMIT_INFO,

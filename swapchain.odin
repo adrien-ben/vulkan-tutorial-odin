@@ -281,7 +281,13 @@ create_swapchain_image_views :: proc(
 ) -> []vk.ImageView {
 	views := make([]vk.ImageView, len(imgs))
 	for img, index in imgs {
-		views[index] = create_image_view(device, img, config.format.format, {.COLOR})
+		views[index] = create_image_view(
+			device,
+			img,
+			config.format.format,
+			{.COLOR},
+			mip_levels = 1,
+		)
 	}
 	return views
 }

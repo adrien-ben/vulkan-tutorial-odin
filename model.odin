@@ -10,8 +10,7 @@ Model :: struct {
 	index_count:          int,
 	index_buffer:         vk.Buffer,
 	index_buffer_memory:  vk.DeviceMemory,
-	texture_image:        vk.Image,
-	texture_image_memory: vk.DeviceMemory,
+	texture_image:        TextureImage,
 	texture_view:         vk.ImageView,
 	texture_sampler:      vk.Sampler,
 }
@@ -19,7 +18,7 @@ Model :: struct {
 destroy_model :: proc(device: vk.Device, using model: Model) {
 	destroy_buffer(device, vertex_buffer, vertex_buffer_memory)
 	destroy_buffer(device, index_buffer, index_buffer_memory)
-	destroy_image(device, texture_image, texture_image_memory)
+	destroy_texture_image(device, texture_image)
 	vk.DestroyImageView(device, texture_view, nil)
 	vk.DestroySampler(device, texture_sampler, nil)
 }
@@ -55,7 +54,7 @@ load_model :: proc(
 		model.indices[:],
 	)
 
-	m.texture_image, m.texture_image_memory = create_texture_image(
+	m.texture_image = create_texture_image(
 		device,
 		pdevice.handle,
 		command_pool,
@@ -66,6 +65,7 @@ load_model :: proc(
 	m.texture_sampler = create_texture_sampler(
 		device,
 		pdevice.properties.limits.maxSamplerAnisotropy,
+		m.texture_image.levels,
 	)
 
 	obj.destroy(model)

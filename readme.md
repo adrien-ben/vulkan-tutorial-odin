@@ -164,6 +164,12 @@ Load an .obj model and render it.
 
 > The tutorial already mentions it but the model doesn't play nicely with backface culling so I disabled it.
 
+### 7: Generating Mipmaps [:rabbit2:](https://vulkan-tutorial.com/Generating_Mipmaps)
+
+Generate mipmaps for the model texture and update sampler to make use of the new mip levels.
+
+> Model rotation is now controlled with the right and left keys.
+
 
 
 [0]: https://vulkan-tutorial.com/
