@@ -153,7 +153,8 @@ create_swapchain :: proc(
 	device: vk.Device,
 	pdevice: PhysicalDevice,
 	surface: vk.SurfaceKHR,
-	depth_buffer: DepthBuffer,
+	color_buffer: AttachmentBuffer,
+	depth_buffer: AttachmentBuffer,
 	render_pass: vk.RenderPass,
 	config: SwapchainConfig,
 ) -> Swapchain {
@@ -205,6 +206,7 @@ create_swapchain :: proc(
 		device,
 		config,
 		swapchain.views,
+		color_buffer,
 		depth_buffer,
 		render_pass,
 	)
@@ -218,13 +220,16 @@ recreate_swapchain :: proc(
 	pdevice: PhysicalDevice,
 	window: glfw.WindowHandle,
 	surface: vk.SurfaceKHR,
-	depth_buffer: DepthBuffer,
+	color_buffer: AttachmentBuffer,
+	depth_buffer: AttachmentBuffer,
+	sample_count: vk.SampleCountFlag,
 	render_pass: vk.RenderPass,
 	command_pool: vk.CommandPool,
 	queue: vk.Queue,
 	current: Swapchain,
 ) -> (
-	DepthBuffer,
+	AttachmentBuffer,
+	AttachmentBuffer,
 	Swapchain,
 ) {
 	result := vk.DeviceWaitIdle(device)
@@ -232,7 +237,8 @@ recreate_swapchain :: proc(
 		panic("Failed to wait for device to be idle.")
 	}
 
-	destroy_depth_buffer(device, depth_buffer)
+	destroy_attachment_buffer(device, color_buffer)
+	destroy_attachment_buffer(device, depth_buffer)
 	destroy_swapchain(device, current)
 
 	swapchain_support := query_swapchain_support(pdevice.handle, surface)
@@ -241,23 +247,33 @@ recreate_swapchain :: proc(
 	}
 	swapchain_config := select_swapchain_config(swapchain_support, window)
 
+	color_buffer := create_color_buffer(
+		device,
+		pdevice.handle,
+		swapchain_config,
+		command_pool,
+		queue,
+		sample_count,
+	)
 	depth_buffer := create_depth_buffer(
 		device,
 		pdevice.handle,
 		swapchain_config,
 		command_pool,
 		queue,
+		sample_count,
 	)
 	swapchain := create_swapchain(
 		device,
 		pdevice,
 		surface,
+		color_buffer,
 		depth_buffer,
 		render_pass,
 		swapchain_config,
 	)
 
-	return depth_buffer, swapchain
+	return color_buffer, depth_buffer, swapchain
 }
 
 get_swapchain_images :: proc(device: vk.Device, swapchain: vk.SwapchainKHR) -> []vk.Image {
@@ -296,12 +312,13 @@ create_swapchain_framebuffers :: proc(
 	device: vk.Device,
 	config: SwapchainConfig,
 	views: []vk.ImageView,
-	depth_buffer: DepthBuffer,
+	color_buffer: AttachmentBuffer,
+	depth_buffer: AttachmentBuffer,
 	render_pass: vk.RenderPass,
 ) -> []vk.Framebuffer {
 	framebuffers := make([]vk.Framebuffer, len(views))
 	for view, index in views {
-		attachments := []vk.ImageView{view, depth_buffer.view}
+		attachments := []vk.ImageView{color_buffer.view, depth_buffer.view, view}
 		create_info := vk.FramebufferCreateInfo {
 			sType           = .FRAMEBUFFER_CREATE_INFO,
 			renderPass      = render_pass,

@@ -67,6 +67,7 @@ create_texture_image :: proc(
 		{.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED},
 		{.DEVICE_LOCAL},
 		texture_img.levels,
+		sample_count = ._1,
 	)
 
 	transition_image_layout(
@@ -111,6 +112,7 @@ create_image :: proc(
 	usage: vk.ImageUsageFlags,
 	properties: vk.MemoryPropertyFlags,
 	mip_levels: int,
+	sample_count: vk.SampleCountFlag,
 ) -> (
 	vk.Image,
 	vk.DeviceMemory,
@@ -126,7 +128,7 @@ create_image :: proc(
 		initialLayout = .UNDEFINED,
 		usage = usage,
 		sharingMode = .EXCLUSIVE,
-		samples = {._1},
+		samples = {sample_count},
 	}
 
 	image: vk.Image
@@ -308,16 +310,46 @@ create_texture_sampler :: proc(device: vk.Device, anisotropy: f32, mip_levels: i
 	return sampler
 }
 
-DepthBuffer :: struct {
+AttachmentBuffer :: struct {
 	image:  vk.Image,
 	memory: vk.DeviceMemory,
 	view:   vk.ImageView,
 	format: vk.Format,
 }
 
-destroy_depth_buffer :: proc(device: vk.Device, buffer: DepthBuffer) {
+destroy_attachment_buffer :: proc(device: vk.Device, buffer: AttachmentBuffer) {
 	destroy_image(device, buffer.image, buffer.memory)
 	vk.DestroyImageView(device, buffer.view, nil)
+}
+
+create_color_buffer :: proc(
+	device: vk.Device,
+	pdevice: vk.PhysicalDevice,
+	sc_config: SwapchainConfig,
+	command_pool: vk.CommandPool,
+	queue: vk.Queue,
+	sample_count: vk.SampleCountFlag,
+) -> (
+	b: AttachmentBuffer,
+) {
+	b.format = sc_config.format.format
+
+	b.image, b.memory = create_image(
+		device,
+		pdevice,
+		int(sc_config.extent.width),
+		int(sc_config.extent.height),
+		b.format,
+		.OPTIMAL,
+		{.COLOR_ATTACHMENT},
+		{.DEVICE_LOCAL},
+		mip_levels = 1,
+		sample_count = sample_count,
+	)
+
+	b.view = create_image_view(device, b.image, b.format, {.COLOR}, mip_levels = 1)
+
+	return
 }
 
 create_depth_buffer :: proc(
@@ -326,22 +358,26 @@ create_depth_buffer :: proc(
 	sc_config: SwapchainConfig,
 	command_pool: vk.CommandPool,
 	queue: vk.Queue,
-) -> DepthBuffer {
-	format := find_depth_format(pdevice)
+	sample_count: vk.SampleCountFlag,
+) -> (
+	b: AttachmentBuffer,
+) {
+	b.format = find_depth_format(pdevice)
 
-	image, memory := create_image(
+	b.image, b.memory = create_image(
 		device,
 		pdevice,
 		int(sc_config.extent.width),
 		int(sc_config.extent.height),
-		format,
+		b.format,
 		.OPTIMAL,
 		{.DEPTH_STENCIL_ATTACHMENT},
 		{.DEVICE_LOCAL},
 		mip_levels = 1,
+		sample_count = sample_count,
 	)
 
-	view := create_image_view(device, image, format, {.DEPTH}, mip_levels = 1)
+	b.view = create_image_view(device, b.image, b.format, {.DEPTH}, mip_levels = 1)
 
 	transition_image_layout(
 		device,
@@ -349,12 +385,12 @@ create_depth_buffer :: proc(
 		queue,
 		.UNDEFINED,
 		.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-		image,
-		format,
+		b.image,
+		b.format,
 		mip_levels = 1,
 	)
 
-	return DepthBuffer{image = image, memory = memory, view = view, format = format}
+	return
 }
 
 find_depth_format :: proc(pdevice: vk.PhysicalDevice) -> vk.Format {

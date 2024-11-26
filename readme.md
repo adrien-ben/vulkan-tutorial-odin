@@ -2,6 +2,8 @@
 
 Vulkan [tutorial][0] written in [Odin][1].
 
+![result](/result.png "Final result")
+
 ## Introduction
 
 This repository will follow the structure of the original tutorial. Each commit will correspond to one page or on section of the page for long chapters.
@@ -169,6 +171,10 @@ Load an .obj model and render it.
 Generate mipmaps for the model texture and update sampler to make use of the new mip levels.
 
 > Model rotation is now controlled with the right and left keys.
+
+### 8: Multisampling [:rabbit2:](https://vulkan-tutorial.com/Multisampling)
+
+Add MSAA support.
 
 
 

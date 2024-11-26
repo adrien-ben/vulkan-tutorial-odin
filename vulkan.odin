@@ -109,20 +109,40 @@ main :: proc() {
 	}
 	swapchain_config := select_swapchain_config(swapchain_support, window)
 
+	color_buffer := create_color_buffer(
+		device,
+		pdevice.handle,
+		swapchain_config,
+		command_pool,
+		graphics_queue,
+		pdevice.max_sample_count,
+	)
+	defer {
+		destroy_attachment_buffer(device, color_buffer)
+		fmt.println("Color buffer destroyed.")
+	}
+	fmt.println("Color buffer created.")
+
 	depth_buffer := create_depth_buffer(
 		device,
 		pdevice.handle,
 		swapchain_config,
 		command_pool,
 		graphics_queue,
+		pdevice.max_sample_count,
 	)
 	defer {
-		destroy_depth_buffer(device, depth_buffer)
+		destroy_attachment_buffer(device, depth_buffer)
 		fmt.println("Depth buffer destroyed.")
 	}
 	fmt.println("Depth buffer created.")
 
-	render_pass := create_render_pass(device, swapchain_config, depth_buffer.format)
+	render_pass := create_render_pass(
+		device,
+		swapchain_config,
+		depth_buffer.format,
+		pdevice.max_sample_count,
+	)
 	defer {
 		vk.DestroyRenderPass(device, render_pass, nil)
 		fmt.println("Vulkan render pass destroyed.")
@@ -133,6 +153,7 @@ main :: proc() {
 		device,
 		pdevice,
 		surface,
+		color_buffer,
 		depth_buffer,
 		render_pass,
 		swapchain_config,
@@ -154,6 +175,7 @@ main :: proc() {
 		device,
 		render_pass,
 		&descriptor_set_layout,
+		pdevice.max_sample_count,
 	)
 	defer {
 		vk.DestroyPipelineLayout(device, graphics_pipeline_layout, nil)
@@ -226,12 +248,14 @@ main :: proc() {
 
 		result: vk.Result
 		if is_swapchain_dirty {
-			depth_buffer, swapchain = recreate_swapchain(
+			color_buffer, depth_buffer, swapchain = recreate_swapchain(
 				device,
 				pdevice,
 				window,
 				surface,
+				color_buffer,
 				depth_buffer,
+				pdevice.max_sample_count,
 				render_pass,
 				command_pool,
 				graphics_queue,
@@ -531,6 +555,7 @@ PhysicalDevice :: struct {
 	name:                 string,
 	queue_family_indices: QueueFamilyIndices,
 	properties:           vk.PhysicalDeviceProperties `fmt:"-"`,
+	max_sample_count:     vk.SampleCountFlag,
 }
 
 QueueFamilyIndices :: struct {
@@ -627,6 +652,7 @@ pick_physical_device :: proc(
 			picked.name = strings.clone_from(name)
 			picked.queue_family_indices = qfamily_indices
 			picked.properties = properties
+			picked.max_sample_count = find_max_usable_sample_count(properties)
 
 			best = pd_score
 			found = true
@@ -684,6 +710,28 @@ get_pdevice_score :: proc(pdevice_properties: vk.PhysicalDeviceProperties) -> in
 	return 1
 }
 
+find_max_usable_sample_count :: proc(
+	pdevice_properties: vk.PhysicalDeviceProperties,
+) -> (
+	s: vk.SampleCountFlag,
+) {
+	supported_counts :=
+		pdevice_properties.limits.framebufferColorSampleCounts &
+		pdevice_properties.limits.framebufferDepthSampleCounts
+
+	flags := []vk.SampleCountFlag{._64, ._32, ._16, ._8, ._4, ._2}
+
+	for f in flags {
+		if (supported_counts & {f}) == {f} {
+			s = f
+			return
+		}
+	}
+
+	return
+}
+
+
 create_logical_device :: proc(pdevice: PhysicalDevice) -> vk.Device {
 	families := []int {
 		pdevice.queue_family_indices.graphics_family,
@@ -736,29 +784,41 @@ create_render_pass :: proc(
 	device: vk.Device,
 	config: SwapchainConfig,
 	depth_format: vk.Format,
+	sample_count: vk.SampleCountFlag,
 ) -> vk.RenderPass {
 	attachments := []vk.AttachmentDescription {
 		// color
 		{
 			format = config.format.format,
-			samples = {._1},
+			samples = {sample_count},
 			loadOp = .CLEAR,
 			storeOp = .STORE,
 			stencilLoadOp = .DONT_CARE,
 			stencilStoreOp = .DONT_CARE,
 			initialLayout = .UNDEFINED,
-			finalLayout = .PRESENT_SRC_KHR,
+			finalLayout = .COLOR_ATTACHMENT_OPTIMAL,
 		},
 		// depth
 		{
 			format = depth_format,
-			samples = {._1},
+			samples = {sample_count},
 			loadOp = .CLEAR,
 			storeOp = .DONT_CARE,
 			stencilLoadOp = .DONT_CARE,
 			stencilStoreOp = .DONT_CARE,
 			initialLayout = .UNDEFINED,
 			finalLayout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+		},
+		// resolve for msaa
+		{
+			format = config.format.format,
+			samples = {._1},
+			loadOp = .DONT_CARE,
+			storeOp = .STORE,
+			stencilLoadOp = .DONT_CARE,
+			stencilStoreOp = .DONT_CARE,
+			initialLayout = .UNDEFINED,
+			finalLayout = .PRESENT_SRC_KHR,
 		},
 	}
 
@@ -772,11 +832,17 @@ create_render_pass :: proc(
 		layout     = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 	}
 
+	resolve_attachment_ref := vk.AttachmentReference {
+		attachment = 2,
+		layout     = .COLOR_ATTACHMENT_OPTIMAL,
+	}
+
 	subpass := vk.SubpassDescription {
 		pipelineBindPoint       = .GRAPHICS,
 		colorAttachmentCount    = 1,
 		pColorAttachments       = &color_attachment_ref,
 		pDepthStencilAttachment = &depth_attachment_ref,
+		pResolveAttachments     = &resolve_attachment_ref,
 	}
 
 	dependency := vk.SubpassDependency {
@@ -810,6 +876,7 @@ create_graphics_pipeline :: proc(
 	device: vk.Device,
 	render_pass: vk.RenderPass,
 	descriptor_set_layout: ^vk.DescriptorSetLayout,
+	sample_count: vk.SampleCountFlag,
 ) -> (
 	vk.PipelineLayout,
 	vk.Pipeline,
@@ -896,7 +963,7 @@ create_graphics_pipeline :: proc(
 	multisampling := vk.PipelineMultisampleStateCreateInfo {
 		sType                = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
 		sampleShadingEnable  = false,
-		rasterizationSamples = {._1},
+		rasterizationSamples = {sample_count},
 	}
 
 	// color blending
