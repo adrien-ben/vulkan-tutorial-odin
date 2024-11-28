@@ -1,7 +1,6 @@
 package main
 
 import "base:runtime"
-import "core:fmt"
 import "core:log"
 import "core:slice"
 import "core:strings"
@@ -19,9 +18,12 @@ VALIDATION_LAYERS := [?]cstring{"VK_LAYER_KHRONOS_validation"}
 
 DEVICE_EXTENSIONS := [?]cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
 
+rt_ctx: runtime.Context
+
 main :: proc() {
 	context.logger = log.create_console_logger()
 	defer log.destroy_console_logger(context.logger)
+	rt_ctx = context
 
 	if !glfw.Init() {
 		panic("Failed to init GLFW.")
@@ -510,13 +512,17 @@ when ENABLE_VALIDATION_LAYERS {
 		data: ^vk.DebugUtilsMessengerCallbackDataEXT,
 		_: rawptr,
 	) -> b32 {
-		context = runtime.default_context()
+		context = rt_ctx
 
 		switch severity {
 		case {.ERROR}:
-			fmt.eprintln("validation:", data.pMessage)
+			log.error("validation:", data.pMessage)
+		case {.WARNING}:
+			log.warn("validation:", data.pMessage)
+		case {.INFO}:
+			log.info("validation:", data.pMessage)
 		case:
-			fmt.println("validation:", data.pMessage)
+			log.debug("validation:", data.pMessage)
 		}
 
 		return false
