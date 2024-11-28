@@ -313,6 +313,8 @@ destroy_vk_context :: proc(using ctx: VkContext) {
 	vk.DestroyDevice(device, nil)
 	log.debug("Vulkan logical device destroyed.")
 
+	destroy_physical_device(pdevice)
+
 	vk.DestroySurfaceKHR(instance, surface, nil)
 	log.debug("Vulkan surface destroyed.")
 
@@ -564,6 +566,10 @@ PhysicalDevice :: struct {
 	max_sample_count:     vk.SampleCountFlag,
 }
 
+destroy_physical_device :: proc(using pdevice: PhysicalDevice) {
+	delete(name)
+}
+
 QueueFamilyIndices :: struct {
 	graphics_family: int,
 	present_family:  int,
@@ -745,7 +751,7 @@ create_logical_device :: proc(pdevice: PhysicalDevice) -> (device: vk.Device) {
 
 	queue_priorities: f32 = 1.0
 
-	queue_create_infos := make([dynamic]vk.DeviceQueueCreateInfo)
+	queue_create_infos: [dynamic]vk.DeviceQueueCreateInfo
 	defer delete(queue_create_infos)
 	for f in unique_families {
 		info := vk.DeviceQueueCreateInfo {

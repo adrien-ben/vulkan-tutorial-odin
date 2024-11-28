@@ -55,11 +55,11 @@ load_from_file :: proc(path: string) -> (o: Obj, error: Error) {
 load_from_bytes :: proc(data: []byte) -> (o: Obj, error: Error) {
 	data_str := string(data)
 
-	positions := make([dynamic]Vec3)
+	positions: [dynamic]Vec3
 	defer delete(positions)
-	coords := make([dynamic]Vec2)
+	coords: [dynamic]Vec2
 	defer delete(coords)
-	faces := make([dynamic]Face)
+	faces: [dynamic]Face
 	defer delete(faces)
 
 	for line in strings.split_lines_iterator(&data_str) {
@@ -157,7 +157,7 @@ load_from_bytes :: proc(data: []byte) -> (o: Obj, error: Error) {
 		}
 	}
 
-	index_per_vertex := make(map[Vertex]u32)
+	index_per_vertex: map[Vertex]u32
 	defer delete(index_per_vertex)
 
 	index: u32 = 0
