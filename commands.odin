@@ -56,18 +56,20 @@ record_command_buffer :: proc(
 		panic("Failed to begin command buffer.")
 	}
 
-	cmd_transition_image_layout(
-		buffer,
-		.UNDEFINED,
-		.COLOR_ATTACHMENT_OPTIMAL,
-		{},
-		{.COLOR_ATTACHMENT_WRITE},
-		{.TOP_OF_PIPE},
-		{.COLOR_ATTACHMENT_OUTPUT},
-		resolve_image,
-		color_buffer.format,
-		1,
-	)
+	transitions := []LayoutTransition {
+		{
+			image = resolve_image,
+			aspeck_mask = {.COLOR},
+			mip_levels = 1,
+			old = .UNDEFINED,
+			src_access_mask = {},
+			src_stage = {.TOP_OF_PIPE},
+			new = .ATTACHMENT_OPTIMAL,
+			dst_access_mask = {.COLOR_ATTACHMENT_WRITE},
+			dst_stage = {.COLOR_ATTACHMENT_OUTPUT},
+		},
+	}
+	cmd_transition_image_layout(buffer, transitions)
 
 	color_attachment_info := vk.RenderingAttachmentInfo {
 		sType = .RENDERING_ATTACHMENT_INFO,
@@ -127,18 +129,20 @@ record_command_buffer :: proc(
 
 	vk.CmdEndRenderingKHR(buffer)
 
-	cmd_transition_image_layout(
-		buffer,
-		.COLOR_ATTACHMENT_OPTIMAL,
-		.PRESENT_SRC_KHR,
-		{.COLOR_ATTACHMENT_WRITE},
-		{},
-		{.COLOR_ATTACHMENT_OUTPUT},
-		{.BOTTOM_OF_PIPE},
-		resolve_image,
-		color_buffer.format,
-		1,
-	)
+	transitions = []LayoutTransition {
+		{
+			image = resolve_image,
+			aspeck_mask = {.COLOR},
+			mip_levels = 1,
+			old = .ATTACHMENT_OPTIMAL,
+			src_access_mask = {.COLOR_ATTACHMENT_WRITE},
+			src_stage = {.COLOR_ATTACHMENT_OUTPUT},
+			new = .PRESENT_SRC_KHR,
+			dst_access_mask = {},
+			dst_stage = {.BOTTOM_OF_PIPE},
+		},
+	}
+	cmd_transition_image_layout(buffer, transitions)
 
 	result = vk.EndCommandBuffer(buffer)
 	if result != .SUCCESS {
@@ -178,13 +182,16 @@ end_single_time_commands :: proc(using ctx: ^VkContext, command_buffer: vk.Comma
 	}
 
 	command_buffer := command_buffer
-	submit_info := vk.SubmitInfo {
-		sType              = .SUBMIT_INFO,
-		commandBufferCount = 1,
-		pCommandBuffers    = &command_buffer,
+	cmd_buffer_info := vk.CommandBufferSubmitInfo {
+		sType         = .COMMAND_BUFFER_SUBMIT_INFO,
+		commandBuffer = command_buffer,
 	}
-
-	result = vk.QueueSubmit(graphics_queue, 1, &submit_info, {})
+	submit_info := vk.SubmitInfo2 {
+		sType                  = .SUBMIT_INFO_2,
+		commandBufferInfoCount = 1,
+		pCommandBufferInfos    = &cmd_buffer_info,
+	}
+	result = vk.QueueSubmit2KHR(graphics_queue, 1, &submit_info, {})
 	if result != .SUCCESS {
 		panic("Failed to submit commands for buffer copy.")
 	}

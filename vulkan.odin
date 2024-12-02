@@ -25,6 +25,7 @@ DEVICE_EXTENSIONS := [?]cstring {
 	vk.KHR_CREATE_RENDERPASS_2_EXTENSION_NAME,
 	vk.KHR_MULTIVIEW_EXTENSION_NAME,
 	vk.KHR_MAINTENANCE_2_EXTENSION_NAME,
+	vk.KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
 }
 
 rt_ctx: runtime.Context
@@ -257,17 +258,30 @@ main :: proc() {
 
 		update_uniform_buffer(ubo_buffers[current_frame], swapchain.config, rotation_degs)
 
-		submit_info := vk.SubmitInfo {
-			sType                = .SUBMIT_INFO,
-			waitSemaphoreCount   = 1,
-			pWaitSemaphores      = &sync_obj.image_available,
-			pWaitDstStageMask    = &vk.PipelineStageFlags{.COLOR_ATTACHMENT_OUTPUT},
-			commandBufferCount   = 1,
-			pCommandBuffers      = &command_buffer,
-			signalSemaphoreCount = 1,
-			pSignalSemaphores    = &sync_obj.render_finished,
+		cmd_buffer_info := vk.CommandBufferSubmitInfo {
+			sType         = .COMMAND_BUFFER_SUBMIT_INFO,
+			commandBuffer = command_buffer,
 		}
-		result = vk.QueueSubmit(vulkan_ctx.graphics_queue, 1, &submit_info, sync_obj.in_flight)
+		wait_sem_info := vk.SemaphoreSubmitInfo {
+			sType     = .SEMAPHORE_SUBMIT_INFO,
+			semaphore = sync_obj.image_available,
+			stageMask = {.COLOR_ATTACHMENT_OUTPUT},
+		}
+		signal_sem_info := vk.SemaphoreSubmitInfo {
+			sType     = .SEMAPHORE_SUBMIT_INFO,
+			semaphore = sync_obj.render_finished,
+			stageMask = {.COLOR_ATTACHMENT_OUTPUT},
+		}
+		submit_info := vk.SubmitInfo2 {
+			sType                    = .SUBMIT_INFO_2,
+			commandBufferInfoCount   = 1,
+			pCommandBufferInfos      = &cmd_buffer_info,
+			waitSemaphoreInfoCount   = 1,
+			pWaitSemaphoreInfos      = &wait_sem_info,
+			signalSemaphoreInfoCount = 1,
+			pSignalSemaphoreInfos    = &signal_sem_info,
+		}
+		result = vk.QueueSubmit2KHR(vulkan_ctx.graphics_queue, 1, &submit_info, sync_obj.in_flight)
 		if result != .SUCCESS {
 			log.errorf("Failed to submit: %v.", result)
 			break
@@ -657,9 +671,13 @@ pick_physical_device :: proc(
 		dynamic_rendering_features := vk.PhysicalDeviceDynamicRenderingFeatures {
 			sType = .PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
 		}
+		synchronization2_features := vk.PhysicalDeviceSynchronization2Features {
+			sType = .PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
+			pNext = &dynamic_rendering_features,
+		}
 		supported_features := vk.PhysicalDeviceFeatures2 {
 			sType = .PHYSICAL_DEVICE_FEATURES_2,
-			pNext = &dynamic_rendering_features,
+			pNext = &synchronization2_features,
 		}
 		vk.GetPhysicalDeviceFeatures2KHR(d, &supported_features)
 		if !supported_features.features.samplerAnisotropy {
@@ -668,6 +686,10 @@ pick_physical_device :: proc(
 		}
 		if !dynamic_rendering_features.dynamicRendering {
 			log.debug("Dynamic rendering is not supported.")
+			continue
+		}
+		if !synchronization2_features.synchronization2 {
+			log.debug("Synchronization2 is not supported.")
 			continue
 		}
 
@@ -783,12 +805,17 @@ create_logical_device :: proc(pdevice: PhysicalDevice) -> (device: vk.Device) {
 		sType            = .PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
 		dynamicRendering = true,
 	}
+	synchronization2_features := vk.PhysicalDeviceSynchronization2Features {
+		sType            = .PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
+		synchronization2 = true,
+		pNext            = &dynamic_rendering_features,
+	}
 	device_features := vk.PhysicalDeviceFeatures {
 		samplerAnisotropy = true,
 	}
 	device_features2 := vk.PhysicalDeviceFeatures2 {
 		sType    = .PHYSICAL_DEVICE_FEATURES_2,
-		pNext    = &dynamic_rendering_features,
+		pNext    = &synchronization2_features,
 		features = device_features,
 	}
 
