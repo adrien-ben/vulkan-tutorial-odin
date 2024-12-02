@@ -10,6 +10,8 @@ This repository will follow the structure of the original tutorial. Each commit 
 
 Sometimes an 'extra' commit will be added with some refactoring, commenting or feature.
 
+There are a few more things covered in the [more][5] branch. 
+
 ## Requirements
 
 You need to have a [Vulkan SDK][2] and the [Odin compiler][3].
@@ -189,3 +191,4 @@ Clean up the code, refactor to avoid passing to many things around all the time,
 [2]: https://www.lunarg.com/vulkan-sdk/
 [3]: https://odin-lang.org/docs/install/
 [4]: https://odin-lang.org/docs/overview/#command-line-defines
+[5]: https://github.com/adrien-ben/vulkan-tutorial-odin/tree/more
