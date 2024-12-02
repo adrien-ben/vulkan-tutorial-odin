@@ -202,6 +202,15 @@ In this champter we:
 - Remove render pass code and swapchain framebuffer creation
 - Some refactoring related to image layout transition
 
+### Extra.4: Synchronization 2
+
+Enable [VK_KHR_synchronization2][7] which simplifies the synchronization API. In this champter we:
+
+- Check if the extension and its dependencies are supported
+- Enable the extensions and the related feature
+- Replace calls to `VkCmdPipelineBarrier` and `VkQueueSubmit`
+- Batch consecutive calls to `transition_image_layout` to limit the number of calls made to `VkCmdPipelineBarrier2KHR`
+
 
 [0]: https://vulkan-tutorial.com/
 [1]: https://odin-lang.org/
@@ -210,3 +219,4 @@ In this champter we:
 [4]: https://odin-lang.org/docs/overview/#command-line-defines
 [5]: https://github.com/adrien-ben/vulkan-tutorial-odin/tree/more
 [6]: https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_KHR_dynamic_rendering.html
+[7]: https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_synchronization2.html
