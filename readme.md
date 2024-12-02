@@ -184,6 +184,23 @@ Add MSAA support.
 
 Clean up the code, refactor to avoid passing to many things around all the time, make to code more "Odin-like" by applying idioms from the language.
 
+## More
+
+Starting here the following commits are not related to the original tutorial.
+
+### Extra.3: Dynamic rendering 
+
+Enable [VK_KHR_dynamic_rendering][6] which lets us render without creating a render pass and framebuffers for the swapchain images.
+Since we don't have a render pass handling image layout transition we need to do it manually.
+In this champter we:
+
+- Check if the extension and its dependencies are supported
+- Enable the extensions and dynamic rendering feature
+- Update graphics pipeline creation with `VkPipelineRenderingCreateInfo`
+- Update rendering commands recording by using `VkCmdBeginRenderingKHR` and `VkCmdEndRenderingKHR`
+- Transition image layout for attachments before and after rendering commands
+- Remove render pass code and swapchain framebuffer creation
+- Some refactoring related to image layout transition
 
 
 [0]: https://vulkan-tutorial.com/
@@ -192,3 +209,4 @@ Clean up the code, refactor to avoid passing to many things around all the time,
 [3]: https://odin-lang.org/docs/install/
 [4]: https://odin-lang.org/docs/overview/#command-line-defines
 [5]: https://github.com/adrien-ben/vulkan-tutorial-odin/tree/more
+[6]: https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_KHR_dynamic_rendering.html

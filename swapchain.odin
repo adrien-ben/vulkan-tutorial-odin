@@ -19,11 +19,10 @@ SwapchainConfig :: struct {
 }
 
 Swapchain :: struct {
-	handle:       vk.SwapchainKHR,
-	config:       SwapchainConfig,
-	images:       []vk.Image,
-	views:        []vk.ImageView,
-	framebuffers: []vk.Framebuffer,
+	handle: vk.SwapchainKHR,
+	config: SwapchainConfig,
+	images: []vk.Image,
+	views:  []vk.ImageView,
 }
 
 delete_swapchain_support_details :: proc(details: SwapchainSupportDetails) {
@@ -129,13 +128,6 @@ select_swapchain_config :: proc(
 }
 
 destroy_swapchain :: proc(using ctx: ^VkContext, swapchain: Swapchain) {
-	for fb in swapchain.framebuffers {
-		vk.DestroyFramebuffer(device, fb, nil)
-	}
-	delete(swapchain.framebuffers)
-	log.debug("Vulkan swapchain framebuffers destroyed.")
-
-
 	for view in swapchain.views {
 		vk.DestroyImageView(device, view, nil)
 	}
@@ -152,7 +144,6 @@ create_swapchain :: proc(
 	using ctx: ^VkContext,
 	color_buffer: AttachmentBuffer,
 	depth_buffer: AttachmentBuffer,
-	render_pass: vk.RenderPass,
 	config: SwapchainConfig,
 ) -> (
 	swapchain: Swapchain,
@@ -199,16 +190,6 @@ create_swapchain :: proc(
 	swapchain.views = create_swapchain_image_views(ctx, config, swapchain.images)
 	log.debug("Vulkan swapchain image views created.")
 
-	swapchain.framebuffers = create_swapchain_framebuffers(
-		ctx,
-		config,
-		swapchain.views,
-		color_buffer,
-		depth_buffer,
-		render_pass,
-	)
-	log.debug("Vulkan swapchain framebuffers created.")
-
 	return
 }
 
@@ -217,7 +198,6 @@ recreate_swapchain :: proc(
 	window: glfw.WindowHandle,
 	old_color_buffer: AttachmentBuffer,
 	old_depth_buffer: AttachmentBuffer,
-	render_pass: vk.RenderPass,
 	current: Swapchain,
 ) -> (
 	new_color_buffer: AttachmentBuffer,
@@ -241,13 +221,7 @@ recreate_swapchain :: proc(
 
 	new_color_buffer = create_color_buffer(ctx, swapchain_config)
 	new_depth_buffer = create_depth_buffer(ctx, swapchain_config)
-	new_swapchain = create_swapchain(
-		ctx,
-		new_color_buffer,
-		new_depth_buffer,
-		render_pass,
-		swapchain_config,
-	)
+	new_swapchain = create_swapchain(ctx, new_color_buffer, new_depth_buffer, swapchain_config)
 
 	return
 }
@@ -281,37 +255,6 @@ create_swapchain_image_views :: proc(
 	views = make([]vk.ImageView, len(imgs))
 	for img, index in imgs {
 		views[index] = create_image_view(ctx, img, config.format.format, {.COLOR}, mip_levels = 1)
-	}
-	return
-}
-
-create_swapchain_framebuffers :: proc(
-	using ctx: ^VkContext,
-	config: SwapchainConfig,
-	views: []vk.ImageView,
-	color_buffer: AttachmentBuffer,
-	depth_buffer: AttachmentBuffer,
-	render_pass: vk.RenderPass,
-) -> (
-	framebuffers: []vk.Framebuffer,
-) {
-	framebuffers = make([]vk.Framebuffer, len(views))
-	for view, index in views {
-		attachments := []vk.ImageView{color_buffer.view, depth_buffer.view, view}
-		create_info := vk.FramebufferCreateInfo {
-			sType           = .FRAMEBUFFER_CREATE_INFO,
-			renderPass      = render_pass,
-			attachmentCount = u32(len(attachments)),
-			pAttachments    = raw_data(attachments),
-			width           = config.extent.width,
-			height          = config.extent.height,
-			layers          = 1,
-		}
-
-		result := vk.CreateFramebuffer(device, &create_info, nil, &framebuffers[index])
-		if result != .SUCCESS {
-			panic("Failed to create swapchain framebuffer.")
-		}
 	}
 	return
 }

@@ -36,10 +36,13 @@ allocate_command_buffers :: proc(
 }
 
 record_command_buffer :: proc(
+	ctx: ^VkContext,
 	buffer: vk.CommandBuffer,
-	render_pass: vk.RenderPass,
-	framebuffer: vk.Framebuffer,
 	config: SwapchainConfig,
+	color_buffer: AttachmentBuffer,
+	depth_buffer: AttachmentBuffer,
+	resolve_image: vk.Image,
+	resolve_view: vk.ImageView,
 	pipeline_layout: vk.PipelineLayout,
 	pipeline: vk.Pipeline,
 	model: Model,
@@ -53,20 +56,50 @@ record_command_buffer :: proc(
 		panic("Failed to begin command buffer.")
 	}
 
-	clear_values := []vk.ClearValue {
-		{color = vk.ClearColorValue{float32 = {0, 0, 0, 1}}},
-		{depthStencil = vk.ClearDepthStencilValue{depth = 1}},
+	cmd_transition_image_layout(
+		buffer,
+		.UNDEFINED,
+		.COLOR_ATTACHMENT_OPTIMAL,
+		{},
+		{.COLOR_ATTACHMENT_WRITE},
+		{.TOP_OF_PIPE},
+		{.COLOR_ATTACHMENT_OUTPUT},
+		resolve_image,
+		color_buffer.format,
+		1,
+	)
+
+	color_attachment_info := vk.RenderingAttachmentInfo {
+		sType = .RENDERING_ATTACHMENT_INFO,
+		clearValue = vk.ClearValue{color = vk.ClearColorValue{float32 = {0, 0, 0, 1}}},
+		imageLayout = .COLOR_ATTACHMENT_OPTIMAL,
+		imageView = color_buffer.view,
+		loadOp = .CLEAR,
+		storeOp = .STORE,
+		resolveImageLayout = .COLOR_ATTACHMENT_OPTIMAL,
+		resolveImageView = resolve_view,
+		resolveMode = {.AVERAGE},
 	}
-	render_pass_begin_info := vk.RenderPassBeginInfo {
-		sType = .RENDER_PASS_BEGIN_INFO,
-		renderPass = render_pass,
-		framebuffer = framebuffer,
-		renderArea = {offset = {}, extent = config.extent},
-		clearValueCount = u32(len(clear_values)),
-		pClearValues = raw_data(clear_values),
+	depth_attachment_info := vk.RenderingAttachmentInfo {
+		sType = .RENDERING_ATTACHMENT_INFO,
+		clearValue = vk.ClearValue{depthStencil = vk.ClearDepthStencilValue{depth = 1}},
+		imageLayout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+		imageView = depth_buffer.view,
+		loadOp = .CLEAR,
+		storeOp = .DONT_CARE,
+		resolveMode = {},
 	}
 
-	vk.CmdBeginRenderPass(buffer, &render_pass_begin_info, .INLINE)
+	rendering_info := vk.RenderingInfo {
+		sType = .RENDERING_INFO,
+		colorAttachmentCount = 1,
+		pColorAttachments = &color_attachment_info,
+		pDepthAttachment = &depth_attachment_info,
+		layerCount = 1,
+		renderArea = {extent = config.extent},
+	}
+	vk.CmdBeginRenderingKHR(buffer, &rendering_info)
+
 	vk.CmdBindPipeline(buffer, .GRAPHICS, pipeline)
 
 	vertex_buffer := model.vertex_buffer
@@ -92,7 +125,20 @@ record_command_buffer :: proc(
 	vk.CmdSetScissor(buffer, 0, 1, &scissor)
 	vk.CmdDrawIndexed(buffer, u32(model.index_count), 1, 0, 0, 0)
 
-	vk.CmdEndRenderPass(buffer)
+	vk.CmdEndRenderingKHR(buffer)
+
+	cmd_transition_image_layout(
+		buffer,
+		.COLOR_ATTACHMENT_OPTIMAL,
+		.PRESENT_SRC_KHR,
+		{.COLOR_ATTACHMENT_WRITE},
+		{},
+		{.COLOR_ATTACHMENT_OUTPUT},
+		{.BOTTOM_OF_PIPE},
+		resolve_image,
+		color_buffer.format,
+		1,
+	)
 
 	result = vk.EndCommandBuffer(buffer)
 	if result != .SUCCESS {

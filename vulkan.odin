@@ -13,10 +13,19 @@ WIN_HEIGHT :: 1024
 
 MAX_FRAMES_IN_FLIGHT :: 2
 
-ENABLE_VALIDATION_LAYERS :: #config(ENABLE_VALIDATION_LAYERS, true)
+INSTANCE_EXTENSIONS := [?]cstring{vk.KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}
+
+ENABLE_VALIDATION_LAYERS :: #config(ENABLE_VALIDATION_LAYERS, false)
 VALIDATION_LAYERS := [?]cstring{"VK_LAYER_KHRONOS_validation"}
 
-DEVICE_EXTENSIONS := [?]cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
+DEVICE_EXTENSIONS := [?]cstring {
+	vk.KHR_SWAPCHAIN_EXTENSION_NAME,
+	vk.KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+	vk.KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME,
+	vk.KHR_CREATE_RENDERPASS_2_EXTENSION_NAME,
+	vk.KHR_MULTIVIEW_EXTENSION_NAME,
+	vk.KHR_MAINTENANCE_2_EXTENSION_NAME,
+}
 
 rt_ctx: runtime.Context
 
@@ -73,20 +82,7 @@ main :: proc() {
 	}
 	log.debug("Depth buffer created.")
 
-	render_pass := create_render_pass(&vulkan_ctx, swapchain_config, depth_buffer.format)
-	defer {
-		vk.DestroyRenderPass(vulkan_ctx.device, render_pass, nil)
-		log.debug("Vulkan render pass destroyed.")
-	}
-	log.debug("Vulkan render pass created.")
-
-	swapchain := create_swapchain(
-		&vulkan_ctx,
-		color_buffer,
-		depth_buffer,
-		render_pass,
-		swapchain_config,
-	)
+	swapchain := create_swapchain(&vulkan_ctx, color_buffer, depth_buffer, swapchain_config)
 	defer {
 		destroy_swapchain(&vulkan_ctx, swapchain)
 		log.debug("Swapchain destroyed.")
@@ -102,7 +98,8 @@ main :: proc() {
 
 	graphics_pipeline_layout, graphics_pipeline := create_graphics_pipeline(
 		&vulkan_ctx,
-		render_pass,
+		color_buffer.format,
+		depth_buffer.format,
 		descriptor_set_layout,
 	)
 	defer {
@@ -181,7 +178,6 @@ main :: proc() {
 				window,
 				color_buffer,
 				depth_buffer,
-				render_pass,
 				swapchain,
 			)
 			log.debug("Swapchain recreated.")
@@ -246,10 +242,13 @@ main :: proc() {
 		}
 
 		record_command_buffer(
+			&vulkan_ctx,
 			command_buffer,
-			render_pass,
-			swapchain.framebuffers[image_index],
 			swapchain.config,
+			color_buffer,
+			depth_buffer,
+			swapchain.images[image_index],
+			swapchain.views[image_index],
 			graphics_pipeline_layout,
 			graphics_pipeline,
 			model,
@@ -385,6 +384,7 @@ create_instance :: proc() -> (instance: vk.Instance) {
 
 	glfw_extensions := glfw.GetRequiredInstanceExtensions()
 	append(&required_exts, ..glfw_extensions[:])
+	append(&required_exts, ..INSTANCE_EXTENSIONS[:])
 	when ENABLE_VALIDATION_LAYERS {
 		append(&required_exts, vk.EXT_DEBUG_UTILS_EXTENSION_NAME)
 	}
@@ -654,10 +654,20 @@ pick_physical_device :: proc(
 		}
 
 		// check features support
-		supported_features: vk.PhysicalDeviceFeatures
-		vk.GetPhysicalDeviceFeatures(d, &supported_features)
-		if !supported_features.samplerAnisotropy {
+		dynamic_rendering_features := vk.PhysicalDeviceDynamicRenderingFeatures {
+			sType = .PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+		}
+		supported_features := vk.PhysicalDeviceFeatures2 {
+			sType = .PHYSICAL_DEVICE_FEATURES_2,
+			pNext = &dynamic_rendering_features,
+		}
+		vk.GetPhysicalDeviceFeatures2KHR(d, &supported_features)
+		if !supported_features.features.samplerAnisotropy {
 			log.debug("Sampler anisotropy is not supported.")
+			continue
+		}
+		if !dynamic_rendering_features.dynamicRendering {
+			log.debug("Dynamic rendering is not supported.")
 			continue
 		}
 
@@ -769,8 +779,17 @@ create_logical_device :: proc(pdevice: PhysicalDevice) -> (device: vk.Device) {
 		append(&queue_create_infos, info)
 	}
 
+	dynamic_rendering_features := vk.PhysicalDeviceDynamicRenderingFeatures {
+		sType            = .PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+		dynamicRendering = true,
+	}
 	device_features := vk.PhysicalDeviceFeatures {
 		samplerAnisotropy = true,
+	}
+	device_features2 := vk.PhysicalDeviceFeatures2 {
+		sType    = .PHYSICAL_DEVICE_FEATURES_2,
+		pNext    = &dynamic_rendering_features,
+		features = device_features,
 	}
 
 	device_create_info := vk.DeviceCreateInfo {
@@ -779,7 +798,7 @@ create_logical_device :: proc(pdevice: PhysicalDevice) -> (device: vk.Device) {
 		pQueueCreateInfos       = raw_data(queue_create_infos),
 		enabledExtensionCount   = u32(len(DEVICE_EXTENSIONS)),
 		ppEnabledExtensionNames = raw_data(DEVICE_EXTENSIONS[:]),
-		pEnabledFeatures        = &device_features,
+		pNext                   = &device_features2,
 	}
 	// for compatibility with older implementations
 	when ENABLE_VALIDATION_LAYERS {
@@ -794,101 +813,10 @@ create_logical_device :: proc(pdevice: PhysicalDevice) -> (device: vk.Device) {
 	return
 }
 
-create_render_pass :: proc(
-	using ctx: ^VkContext,
-	config: SwapchainConfig,
-	depth_format: vk.Format,
-) -> (
-	render_pass: vk.RenderPass,
-) {
-	attachments := []vk.AttachmentDescription {
-		// color
-		{
-			format = config.format.format,
-			samples = {pdevice.max_sample_count},
-			loadOp = .CLEAR,
-			storeOp = .STORE,
-			stencilLoadOp = .DONT_CARE,
-			stencilStoreOp = .DONT_CARE,
-			initialLayout = .UNDEFINED,
-			finalLayout = .COLOR_ATTACHMENT_OPTIMAL,
-		},
-		// depth
-		{
-			format = depth_format,
-			samples = {ctx.pdevice.max_sample_count},
-			loadOp = .CLEAR,
-			storeOp = .DONT_CARE,
-			stencilLoadOp = .DONT_CARE,
-			stencilStoreOp = .DONT_CARE,
-			initialLayout = .UNDEFINED,
-			finalLayout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-		},
-		// resolve for msaa
-		{
-			format = config.format.format,
-			samples = {._1},
-			loadOp = .DONT_CARE,
-			storeOp = .STORE,
-			stencilLoadOp = .DONT_CARE,
-			stencilStoreOp = .DONT_CARE,
-			initialLayout = .UNDEFINED,
-			finalLayout = .PRESENT_SRC_KHR,
-		},
-	}
-
-	color_attachment_ref := vk.AttachmentReference {
-		attachment = 0,
-		layout     = .COLOR_ATTACHMENT_OPTIMAL,
-	}
-
-	depth_attachment_ref := vk.AttachmentReference {
-		attachment = 1,
-		layout     = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-	}
-
-	resolve_attachment_ref := vk.AttachmentReference {
-		attachment = 2,
-		layout     = .COLOR_ATTACHMENT_OPTIMAL,
-	}
-
-	subpass := vk.SubpassDescription {
-		pipelineBindPoint       = .GRAPHICS,
-		colorAttachmentCount    = 1,
-		pColorAttachments       = &color_attachment_ref,
-		pDepthStencilAttachment = &depth_attachment_ref,
-		pResolveAttachments     = &resolve_attachment_ref,
-	}
-
-	dependency := vk.SubpassDependency {
-		srcSubpass    = vk.SUBPASS_EXTERNAL,
-		dstSubpass    = 0,
-		srcStageMask  = {.COLOR_ATTACHMENT_OUTPUT, .EARLY_FRAGMENT_TESTS},
-		srcAccessMask = nil,
-		dstStageMask  = {.COLOR_ATTACHMENT_OUTPUT, .EARLY_FRAGMENT_TESTS},
-		dstAccessMask = {.COLOR_ATTACHMENT_WRITE, .DEPTH_STENCIL_ATTACHMENT_WRITE},
-	}
-
-	create_info := vk.RenderPassCreateInfo {
-		sType           = .RENDER_PASS_CREATE_INFO,
-		attachmentCount = u32(len(attachments)),
-		pAttachments    = raw_data(attachments),
-		subpassCount    = 1,
-		pSubpasses      = &subpass,
-		dependencyCount = 1,
-		pDependencies   = &dependency,
-	}
-
-	result := vk.CreateRenderPass(device, &create_info, nil, &render_pass)
-	if result != .SUCCESS {
-		panic("Failed to create render pass.")
-	}
-	return
-}
-
 create_graphics_pipeline :: proc(
 	using ctx: ^VkContext,
-	render_pass: vk.RenderPass,
+	color_format: vk.Format,
+	depth_format: vk.Format,
 	descriptor_set_layout: vk.DescriptorSetLayout,
 ) -> (
 	layout: vk.PipelineLayout,
@@ -999,6 +927,15 @@ create_graphics_pipeline :: proc(
 		depthCompareOp   = .LESS,
 	}
 
+	// dynamic rendering
+	color_format := color_format
+	rendering_state := vk.PipelineRenderingCreateInfo {
+		sType                   = .PIPELINE_RENDERING_CREATE_INFO,
+		colorAttachmentCount    = 1,
+		pColorAttachmentFormats = &color_format,
+		depthAttachmentFormat   = depth_format,
+	}
+
 	// layout
 	descriptor_set_layout := descriptor_set_layout
 	layout_create_info := vk.PipelineLayoutCreateInfo {
@@ -1024,9 +961,8 @@ create_graphics_pipeline :: proc(
 		pColorBlendState    = &color_blend_state,
 		pDepthStencilState  = &depth_stencil_state,
 		pDynamicState       = &dynamic_state,
+		pNext               = &rendering_state,
 		layout              = layout,
-		renderPass          = render_pass,
-		subpass             = 0,
 	}
 
 	result = vk.CreateGraphicsPipelines(device, {}, 1, &create_info, nil, &pipeline)

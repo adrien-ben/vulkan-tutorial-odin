@@ -59,6 +59,10 @@ create_texture_image :: proc(using ctx: ^VkContext, path: string) -> (texture_im
 		ctx,
 		.UNDEFINED,
 		.TRANSFER_DST_OPTIMAL,
+		{},
+		{.TRANSFER_WRITE},
+		{.TOP_OF_PIPE},
+		{.TRANSFER},
 		texture_img.image,
 		texture_img.format,
 		texture_img.levels,
@@ -140,12 +144,39 @@ create_image :: proc(
 transition_image_layout :: proc(
 	using ctx: ^VkContext,
 	old, new: vk.ImageLayout,
+	srcAccessMask, dstAccessMask: vk.AccessFlags,
+	srcStage, dstStage: vk.PipelineStageFlags,
 	image: vk.Image,
 	format: vk.Format,
 	mip_levels: int,
 ) {
 	command_buffer := begin_single_time_commands(ctx)
 
+	cmd_transition_image_layout(
+		command_buffer,
+		old,
+		new,
+		srcAccessMask,
+		dstAccessMask,
+		srcStage,
+		dstStage,
+		image,
+		format,
+		mip_levels,
+	)
+
+	end_single_time_commands(ctx, command_buffer)
+}
+
+cmd_transition_image_layout :: proc(
+	command_buffer: vk.CommandBuffer,
+	old, new: vk.ImageLayout,
+	srcAccessMask, dstAccessMask: vk.AccessFlags,
+	srcStage, dstStage: vk.PipelineStageFlags,
+	image: vk.Image,
+	format: vk.Format,
+	mip_levels: int,
+) {
 	aspeck_mask: vk.ImageAspectFlags = {.COLOR}
 	if new == .DEPTH_STENCIL_ATTACHMENT_OPTIMAL {
 		aspeck_mask = {.DEPTH}
@@ -158,6 +189,8 @@ transition_image_layout :: proc(
 		sType = .IMAGE_MEMORY_BARRIER,
 		oldLayout = old,
 		newLayout = new,
+		srcAccessMask = srcAccessMask,
+		dstAccessMask = dstAccessMask,
 		srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
 		dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
 		image = image,
@@ -170,32 +203,7 @@ transition_image_layout :: proc(
 		},
 	}
 
-	srcStage, dstStage: vk.PipelineStageFlags
-	if old == .UNDEFINED && new == .TRANSFER_DST_OPTIMAL {
-		barrier.srcAccessMask = {}
-		barrier.dstAccessMask = {.TRANSFER_WRITE}
-
-		srcStage = {.TOP_OF_PIPE}
-		dstStage = {.TRANSFER}
-	} else if old == .TRANSFER_DST_OPTIMAL && new == .SHADER_READ_ONLY_OPTIMAL {
-		barrier.srcAccessMask = {.TRANSFER_WRITE}
-		barrier.dstAccessMask = {.SHADER_READ}
-
-		srcStage = {.TRANSFER}
-		dstStage = {.FRAGMENT_SHADER}
-	} else if old == .UNDEFINED && new == .DEPTH_STENCIL_ATTACHMENT_OPTIMAL {
-		barrier.srcAccessMask = {}
-		barrier.dstAccessMask = {.DEPTH_STENCIL_ATTACHMENT_READ, .DEPTH_STENCIL_ATTACHMENT_WRITE}
-
-		srcStage = {.TOP_OF_PIPE}
-		dstStage = {.EARLY_FRAGMENT_TESTS}
-	} else {
-		panic("Unsupported image layout transition")
-	}
-
 	vk.CmdPipelineBarrier(command_buffer, srcStage, dstStage, {}, 0, nil, 0, nil, 1, &barrier)
-
-	end_single_time_commands(ctx, command_buffer)
 }
 
 copy_buffer_to_image :: proc(
@@ -316,6 +324,19 @@ create_color_buffer :: proc(
 		sample_count = ctx.pdevice.max_sample_count,
 	)
 
+	transition_image_layout(
+		ctx,
+		.UNDEFINED,
+		.COLOR_ATTACHMENT_OPTIMAL,
+		{},
+		{},
+		{.TOP_OF_PIPE},
+		{.BOTTOM_OF_PIPE},
+		b.image,
+		b.format,
+		1,
+	)
+
 	b.view = create_image_view(ctx, b.image, b.format, {.COLOR}, mip_levels = 1)
 
 	return
@@ -341,16 +362,20 @@ create_depth_buffer :: proc(
 		sample_count = ctx.pdevice.max_sample_count,
 	)
 
-	b.view = create_image_view(ctx, b.image, b.format, {.DEPTH}, mip_levels = 1)
-
 	transition_image_layout(
 		ctx,
 		.UNDEFINED,
 		.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+		{},
+		{},
+		{.TOP_OF_PIPE},
+		{.BOTTOM_OF_PIPE},
 		b.image,
 		b.format,
-		mip_levels = 1,
+		1,
 	)
+
+	b.view = create_image_view(ctx, b.image, b.format, {.DEPTH}, mip_levels = 1)
 
 	return
 }
