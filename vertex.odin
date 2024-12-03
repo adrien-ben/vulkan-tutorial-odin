@@ -12,8 +12,8 @@ get_vertex_binding_description :: proc() -> vk.VertexInputBindingDescription {
 	}
 }
 
-get_vertex_attribute_descriptions :: proc() -> [2]vk.VertexInputAttributeDescription {
-	return [2]vk.VertexInputAttributeDescription {
+get_vertex_attribute_descriptions :: proc() -> [3]vk.VertexInputAttributeDescription {
+	return [?]vk.VertexInputAttributeDescription {
 		{
 			binding = 0,
 			location = 0,
@@ -25,6 +25,12 @@ get_vertex_attribute_descriptions :: proc() -> [2]vk.VertexInputAttributeDescrip
 			location = 1,
 			format = .R32G32_SFLOAT,
 			offset = u32(offset_of(obj.Vertex, tex_coords)),
+		},
+		{
+			binding = 0,
+			location = 2,
+			format = .R32G32B32_SFLOAT,
+			offset = u32(offset_of(obj.Vertex, normal)),
 		},
 	}
 }

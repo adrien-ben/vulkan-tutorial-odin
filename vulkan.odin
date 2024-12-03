@@ -28,12 +28,19 @@ DEVICE_EXTENSIONS := [?]cstring {
 	vk.KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
 }
 
+DisplayMode :: enum u32 {
+	Colors,
+	Normals,
+}
+
 rt_ctx: runtime.Context
 
 main :: proc() {
 	context.logger = log.create_console_logger()
 	defer log.destroy_console_logger(context.logger)
 	rt_ctx = context
+
+	display_mode: DisplayMode
 
 	if !glfw.Init() {
 		panic("Failed to init GLFW.")
@@ -97,18 +104,25 @@ main :: proc() {
 	}
 	log.debug("Descriptor set layout created.")
 
-	graphics_pipeline_layout, graphics_pipeline := create_graphics_pipeline(
-		&vulkan_ctx,
-		color_buffer.format,
-		depth_buffer.format,
-		descriptor_set_layout,
-	)
+	graphics_pipeline_layout := create_graphics_pipeline_layout(&vulkan_ctx, descriptor_set_layout)
 	defer {
 		vk.DestroyPipelineLayout(vulkan_ctx.device, graphics_pipeline_layout, nil)
-		vk.DestroyPipeline(vulkan_ctx.device, graphics_pipeline, nil)
-		log.debug("Vulkan graphics pipeline and layout destroyed.")
+		log.debug("Vulkan graphics pipeline layout destroyed.")
 	}
-	log.debug("Vulkan graphics pipeline and layout created.")
+	log.debug("Vulkan graphics pipeline layout created.")
+
+	graphics_pipeline := create_graphics_pipeline(
+		&vulkan_ctx,
+		graphics_pipeline_layout,
+		color_buffer.format,
+		depth_buffer.format,
+		display_mode,
+	)
+	defer {
+		vk.DestroyPipeline(vulkan_ctx.device, graphics_pipeline, nil)
+		log.debug("Vulkan graphics pipeline destroyed.")
+	}
+	log.debug("Vulkan graphics pipeline created.")
 
 	sync_objs := create_sync_objects(&vulkan_ctx)
 	defer {
@@ -170,6 +184,28 @@ main :: proc() {
 			fb_h = h
 			is_swapchain_dirty = true
 			continue
+		}
+
+		// check if display mode was changed
+		new_display_mode := display_mode
+		if glfw.GetKey(window, glfw.KEY_1) == glfw.PRESS {
+			new_display_mode = .Colors
+		} else if glfw.GetKey(window, glfw.KEY_2) == glfw.PRESS {
+			new_display_mode = .Normals
+		}
+
+		if display_mode != new_display_mode {
+			display_mode = new_display_mode
+			vk.DeviceWaitIdle(vulkan_ctx.device)
+			vk.DestroyPipeline(vulkan_ctx.device, graphics_pipeline, nil)
+			graphics_pipeline = create_graphics_pipeline(
+				&vulkan_ctx,
+				graphics_pipeline_layout,
+				color_buffer.format,
+				depth_buffer.format,
+				display_mode,
+			)
+			log.debug("Graphics pipeline recreated after display mode change.")
 		}
 
 		result: vk.Result
@@ -840,13 +876,33 @@ create_logical_device :: proc(pdevice: PhysicalDevice) -> (device: vk.Device) {
 	return
 }
 
-create_graphics_pipeline :: proc(
+create_graphics_pipeline_layout :: proc(
 	using ctx: ^VkContext,
-	color_format: vk.Format,
-	depth_format: vk.Format,
 	descriptor_set_layout: vk.DescriptorSetLayout,
 ) -> (
 	layout: vk.PipelineLayout,
+) {
+	// layout
+	descriptor_set_layout := descriptor_set_layout
+	layout_create_info := vk.PipelineLayoutCreateInfo {
+		sType          = .PIPELINE_LAYOUT_CREATE_INFO,
+		setLayoutCount = 1,
+		pSetLayouts    = &descriptor_set_layout,
+	}
+	result := vk.CreatePipelineLayout(device, &layout_create_info, nil, &layout)
+	if result != .SUCCESS {
+		panic("Failed to create graphics pipeline layout.")
+	}
+	return
+}
+
+create_graphics_pipeline :: proc(
+	using ctx: ^VkContext,
+	layout: vk.PipelineLayout,
+	color_format: vk.Format,
+	depth_format: vk.Format,
+	display_mode: DisplayMode,
+) -> (
 	pipeline: vk.Pipeline,
 ) {
 	// shader modules
@@ -867,6 +923,19 @@ create_graphics_pipeline :: proc(
 	log.debug("Fragment shader module created.")
 
 	// shader stages
+	fragment_stage_specialization_entries := vk.SpecializationMapEntry {
+		constantID = 0,
+		offset     = 0,
+		size       = size_of(u32),
+	}
+	display_mode := display_mode
+	fragment_stage_specialization := vk.SpecializationInfo {
+		dataSize      = size_of(u32),
+		mapEntryCount = 1,
+		pMapEntries   = &fragment_stage_specialization_entries,
+		pData         = &display_mode,
+	}
+
 	shader_stages := []vk.PipelineShaderStageCreateInfo {
 		{
 			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -879,6 +948,7 @@ create_graphics_pipeline :: proc(
 			stage = {.FRAGMENT},
 			module = fragment_shader_module,
 			pName = "main",
+			pSpecializationInfo = &fragment_stage_specialization,
 		},
 	}
 
@@ -963,18 +1033,6 @@ create_graphics_pipeline :: proc(
 		depthAttachmentFormat   = depth_format,
 	}
 
-	// layout
-	descriptor_set_layout := descriptor_set_layout
-	layout_create_info := vk.PipelineLayoutCreateInfo {
-		sType          = .PIPELINE_LAYOUT_CREATE_INFO,
-		setLayoutCount = 1,
-		pSetLayouts    = &descriptor_set_layout,
-	}
-	result := vk.CreatePipelineLayout(device, &layout_create_info, nil, &layout)
-	if result != .SUCCESS {
-		panic("Failed to create graphics pipeline layout.")
-	}
-
 	// pipeline
 	create_info := vk.GraphicsPipelineCreateInfo {
 		sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
@@ -992,7 +1050,7 @@ create_graphics_pipeline :: proc(
 		layout              = layout,
 	}
 
-	result = vk.CreateGraphicsPipelines(device, {}, 1, &create_info, nil, &pipeline)
+	result := vk.CreateGraphicsPipelines(device, {}, 1, &create_info, nil, &pipeline)
 	if result != .SUCCESS {
 		panic("Failed to create graphics pipeline.")
 	}
