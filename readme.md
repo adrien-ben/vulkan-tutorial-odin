@@ -211,6 +211,17 @@ Enable [VK_KHR_synchronization2][7] which simplifies the synchronization API. In
 - Replace calls to `VkCmdPipelineBarrier` and `VkQueueSubmit`
 - Batch consecutive calls to `transition_image_layout` to limit the number of calls made to `VkCmdPipelineBarrier2KHR`
 
+### Extra.5: Specialization constants
+
+Allow changing display mode to display scene colors or normals. This is implemented using [specialization constants][8].
+Mode can be changed by pressing 1️⃣ for colors or 2️⃣ for normals. Each time the mode is changed, the graphics pipeline is recreated and the new constant value is passed to the fragment shader for compilation. This allow the compiler to optimize away the code that won't be accessible. In this champter we:
+
+- Update the .obj loader to load model normals
+- Update pipeline definition and vertex shaders to use the model normals
+- Update the fragment shader to add the constant and output model colors or normal according to the constant's value
+- Refactor graphics pipeline creation to split layout and pipeline creation so we don't also recreate the layout when recreating the pipeline
+- Detect key presses to change the mode and recreate the graphics pipeline with the new constant value
+
 
 [0]: https://vulkan-tutorial.com/
 [1]: https://odin-lang.org/
@@ -220,3 +231,4 @@ Enable [VK_KHR_synchronization2][7] which simplifies the synchronization API. In
 [5]: https://github.com/adrien-ben/vulkan-tutorial-odin/tree/more
 [6]: https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_KHR_dynamic_rendering.html
 [7]: https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_synchronization2.html
+[8]: https://docs.vulkan.org/samples/latest/samples/performance/specialization_constants/README.html

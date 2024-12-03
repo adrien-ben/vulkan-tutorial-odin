@@ -4,18 +4,20 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 
-Vec3 :: distinct [3]f32
-Vec2 :: distinct [2]f32
+Vec3 :: [3]f32
+Vec2 :: [2]f32
 
 @(private)
 Face :: struct {
 	position: [3]int,
 	coords:   [3]int,
+	normal:   [3]int,
 }
 
 Vertex :: struct {
 	position:   Vec3,
 	tex_coords: Vec2,
+	normal:     Vec3,
 }
 
 Obj :: struct {
@@ -28,6 +30,7 @@ Error :: enum {
 	OS,
 	InvalidVertexPosition,
 	InvalidVertexTextureCoordinates,
+	InvalidVertexNormal,
 	UnsupportedQuadFaces,
 	InvalidFace,
 	InvalidFaceIndex,
@@ -47,8 +50,7 @@ load_from_file :: proc(path: string) -> (o: Obj, error: Error) {
 	}
 	defer delete(data)
 
-	o, error = load_from_bytes(data)
-	return
+	return load_from_bytes(data)
 }
 
 @(private)
@@ -59,61 +61,41 @@ load_from_bytes :: proc(data: []byte) -> (o: Obj, error: Error) {
 	defer delete(positions)
 	coords: [dynamic]Vec2
 	defer delete(coords)
+	normals: [dynamic]Vec3
+	defer delete(normals)
 	faces: [dynamic]Face
 	defer delete(faces)
 
 	for line in strings.split_lines_iterator(&data_str) {
 		if strings.starts_with(line, "v ") {
-			// parse position
-
-			components: [4]f32 // x, y, z, [w]
-			line := line
-			i := 0
-			for token in strings.split_iterator(&line, " ") {
-				if i == 5 {
-					error = .InvalidVertexPosition
-					return
-				}
-
-				if i > 0 {
-					v, parsed := strconv.parse_f32(token)
-					if !parsed {
-						error = .InvalidVertexPosition
-						return
-					}
-					components[i - 1] = v
-				}
-				i += 1
+			// parse position: x, y, z, [w]
+			components, ok := parse_vertex_attribute_f32(4, line)
+			if !ok {
+				error = .InvalidVertexPosition
+				return
 			}
 
-			pos := Vec3{components[0], components[1], components[2]}
-			append(&positions, pos)
+			append(&positions, components.xyz)
 		} else if strings.starts_with(line, "vt ") {
-			// parse texture coordinates
-
-			components: [3]f32 // u, v, [w]
-			line := line
-			i := 0
-			for token in strings.split_iterator(&line, " ") {
-				if i == 4 {
-					error = .InvalidVertexTextureCoordinates
-					return
-				}
-
-				if i > 0 {
-					v, parsed := strconv.parse_f32(token)
-					if !parsed {
-						error = .InvalidVertexTextureCoordinates
-						return
-					}
-					components[i - 1] = v
-				}
-				i += 1
+			// parse texture coordinates: u, v, [w]
+			components, ok := parse_vertex_attribute_f32(3, line)
+			if !ok {
+				error = .InvalidVertexTextureCoordinates
+				return
 			}
 
-			uv := Vec2{components[0], 1 - components[1]}
-			append(&coords, uv)
-		} else if strings.starts_with(line, "f") {
+			components.y = 1 - components.y
+			append(&coords, components.xy)
+		} else if strings.starts_with(line, "vn ") {
+			// parse normal: x, y, z
+			components, ok := parse_vertex_attribute_f32(3, line)
+			if !ok {
+				error = .InvalidVertexNormal
+				return
+			}
+
+			append(&normals, components)
+		} else if strings.starts_with(line, "f ") {
 			// parse face
 
 			face: Face
@@ -149,6 +131,7 @@ load_from_bytes :: proc(data: []byte) -> (o: Obj, error: Error) {
 
 					face.position[i - 1] = face_indices[0] - 1
 					face.coords[i - 1] = face_indices[1] - 1
+					face.normal[i - 1] = face_indices[2] - 1
 				}
 				i += 1
 			}
@@ -163,9 +146,15 @@ load_from_bytes :: proc(data: []byte) -> (o: Obj, error: Error) {
 	index: u32 = 0
 	for face in faces {
 		for i in 0 ..= 2 {
-			v := Vertex {
-				position   = positions[face.position[i]],
-				tex_coords = coords[face.coords[i]],
+			v: Vertex
+			if face.position[i] >= 0 {
+				v.position = positions[face.position[i]]
+			}
+			if face.coords[i] >= 0 {
+				v.tex_coords = coords[face.coords[i]]
+			}
+			if face.normal[i] >= 0 {
+				v.normal = normals[face.normal[i]]
 			}
 
 			idx, ok := index_per_vertex[v]
@@ -181,5 +170,26 @@ load_from_bytes :: proc(data: []byte) -> (o: Obj, error: Error) {
 		}
 	}
 
+	return
+}
+
+parse_vertex_attribute_f32 :: proc($N: int, line: string) -> (res: [N]f32, ok: bool) {
+	i := 0
+	line := line
+	for token in strings.split_iterator(&line, " ") {
+		if i == N + 1 {
+			return
+		}
+
+		if i > 0 {
+			v, parsed := strconv.parse_f32(token)
+			if !parsed {
+				return
+			}
+			res[i - 1] = v
+		}
+		i += 1
+	}
+	ok = true
 	return
 }
