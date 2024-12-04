@@ -204,7 +204,7 @@ In this champter we:
 
 ### Extra.4: Synchronization 2
 
-Enable [VK_KHR_synchronization2][7] which simplifies the synchronization API. In this champter we:
+Enable [VK_KHR_synchronization2][7] which simplifies the synchronization API. In this chapter we:
 
 - Check if the extension and its dependencies are supported
 - Enable the extensions and the related feature
@@ -214,13 +214,24 @@ Enable [VK_KHR_synchronization2][7] which simplifies the synchronization API. In
 ### Extra.5: Specialization constants
 
 Allow changing display mode to display scene colors or normals. This is implemented using [specialization constants][8].
-Mode can be changed by pressing 1️⃣ for colors or 2️⃣ for normals. Each time the mode is changed, the graphics pipeline is recreated and the new constant value is passed to the fragment shader for compilation. This allow the compiler to optimize away the code that won't be accessible. In this champter we:
+Mode can be changed by pressing 1️⃣ for colors or 2️⃣ for normals. Each time the mode is changed, the graphics pipeline is recreated and the new constant value is passed to the fragment shader for compilation. This allow the compiler to optimize away the code that won't be accessible. In this chapter we:
 
 - Update the .obj loader to load model normals
 - Update pipeline definition and vertex shaders to use the model normals
 - Update the fragment shader to add the constant and output model colors or normal according to the constant's value
 - Refactor graphics pipeline creation to split layout and pipeline creation so we don't also recreate the layout when recreating the pipeline
 - Detect key presses to change the mode and recreate the graphics pipeline with the new constant value
+
+### Extra.6: Pipeline cache
+
+Use [pipeline cache][9] to accelerate pipeline creation. Pipeline can be expensive to create especially if you have big shaders since they need to be compiled. You can use pipeline cache to improve creation time and also serialize the cache content and use it across application runs. In this chapter we:
+
+- Create a `VkPipelineCache` object and initialize it with previously saved data if present
+- Check that deserialized cache content is compatible with current physical device by reading its header
+- Pass the cache object at pipeline creation time
+- Serialize the cache content before destroying the cache object so it can be used again
+
+You can disable caching with `-define:ENABLE_PIPELINE_CACHE=false` when building the application to see the pipeline creation time differences. On the first run, both pipelines (see [Extra.5](#extra5-specialization-constants)) will actually be longer to create than without cache because the cache needs to be populated, and that take some time too. But subsequent runs should be much faster.
 
 
 [0]: https://vulkan-tutorial.com/
@@ -232,3 +243,4 @@ Mode can be changed by pressing 1️⃣ for colors or 2️⃣ for normals. Each 
 [6]: https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_KHR_dynamic_rendering.html
 [7]: https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_synchronization2.html
 [8]: https://docs.vulkan.org/samples/latest/samples/performance/specialization_constants/README.html
+[9]: https://docs.vulkan.org/samples/latest/samples/performance/pipeline_cache/README.html
